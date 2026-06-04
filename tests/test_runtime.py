@@ -81,9 +81,14 @@ class Methods(Domain):
         self.products.update(product_id)
 
 
+class Reports(Service):
+    products: Products
+
+
 class AppBackend(BackendBase):
     products: Products
     methods: Methods
+    reports: Reports
 
 
 class UnderscorePrefixedApplog(Service):
@@ -110,6 +115,10 @@ class BadFactory(Service):
 
 
 class NeedsRuntimeValue(Service):
+    db: Db
+
+
+class DefaultConstructableDb(Service):
     db: Db
 
 
@@ -160,7 +169,7 @@ class NamedDefaultDoesNotOverrideTypedInput(Service):
 
 
 def test_builds_a_shared_graph_per_root() -> None:
-    backend = AppBackend.from_env(db=Db())
+    backend = AppBackend.from_env(db=Db(), value=0)
 
     assert backend.products is backend.methods.products
     assert backend.products.applog is backend.methods.applog
@@ -168,8 +177,8 @@ def test_builds_a_shared_graph_per_root() -> None:
 
 
 def test_separate_roots_are_isolated() -> None:
-    first = AppBackend.from_env(db=Db())
-    second = AppBackend.from_env(db=Db())
+    first = AppBackend.from_env(db=Db(), value=0)
+    second = AppBackend.from_env(db=Db(), value=0)
 
     assert first is not second
     assert first.products is not second.products
@@ -177,7 +186,7 @@ def test_separate_roots_are_isolated() -> None:
 
 
 def test_direct_cycles_work_without_wrapper_types() -> None:
-    backend = AppBackend.from_env(db=Db())
+    backend = AppBackend.from_env(db=Db(), value=0)
 
     assert backend.products.methods is backend.methods
     assert backend.methods.products is backend.products
@@ -185,18 +194,18 @@ def test_direct_cycles_work_without_wrapper_types() -> None:
 
 def test_factory_selection_can_return_a_concrete_subclass() -> None:
     db = Db()
-    backend = AppBackend.from_env(db=db)
+    backend = AppBackend.from_env(db=db, value=0)
     assert isinstance(backend.products.mailer, SMTPMailer)
 
     fake_db = Db()
     fake_db.events.append("use-fake")
-    fake_backend = AppBackend.from_env(db=fake_db)
+    fake_backend = AppBackend.from_env(db=fake_db, value=0)
     assert isinstance(fake_backend.products.mailer, FakeMailer)
 
 
 def test_runtime_input_flows_to_nested_factories() -> None:
     db = Db()
-    backend = AppBackend.from_env(db=db)
+    backend = AppBackend.from_env(db=db, value=0)
 
     assert backend.products.applog.db is db
     assert backend.products.mailer.db is db
@@ -204,7 +213,7 @@ def test_runtime_input_flows_to_nested_factories() -> None:
 
 def test_graph_is_executable_after_wiring() -> None:
     db = Db()
-    backend = AppBackend.from_env(db=db)
+    backend = AppBackend.from_env(db=db, value=0)
 
     backend.methods.update(method_id=2, product_id=7)
 
@@ -218,6 +227,11 @@ def test_graph_is_executable_after_wiring() -> None:
 def test_missing_runtime_input_raises_a_clear_error() -> None:
     with pytest.raises(TypeError):
         AppBackend.from_env()
+
+
+def test_missing_runtime_input_for_zero_arg_class_field_raises_clear_error() -> None:
+    with pytest.raises(TypeError, match="Missing runtime input for field 'db'"):
+        build_graph(DefaultConstructableDb, {})
 
 
 def test_factory_accepts_underscore_prefixed_runtime_input_names() -> None:
@@ -234,6 +248,21 @@ def test_factory_accepts_bare_underscore_runtime_input_names() -> None:
     applog = build_graph(BareUnderscoreApplog, {"db": db})
 
     assert applog.db is db
+
+
+def test_from_env_checked_warns_on_service_to_domain_dependencies() -> None:
+    with pytest.warns(UserWarning, match="Service 'Reports' should not depend on Domain 'Products'"):
+        backend = AppBackend.from_env_checked(strict=False, db=Db(), value=0)
+
+    assert backend.reports.products is backend.products
+
+
+def test_from_env_checked_can_fail_on_service_to_domain_dependencies() -> None:
+    with pytest.raises(
+        TypeError,
+        match="Service 'Reports' should not depend on Domain 'Products' via field 'products'",
+    ):
+        AppBackend.from_env_checked(strict=True, db=Db(), value=0)
 
 
 def test_factory_return_must_be_injectable() -> None:

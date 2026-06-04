@@ -1,3 +1,5 @@
+"""Base injectable types used by the dependency graph runtime."""
+
 from __future__ import annotations
 
 import typing as t
@@ -8,6 +10,7 @@ class Injectable:
 
     @classmethod
     def build(cls, **kw: t.Any) -> t.Self:
+        """Build an injectable instance using the runtime graph."""
         from .runtime import build_graph
 
         return build_graph(cls, kw)

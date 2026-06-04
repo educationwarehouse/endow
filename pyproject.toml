@@ -32,8 +32,12 @@ exclude_also = [
     ]
 
 [tool.ruff]
+src = ["src"]
+include = ["src/**/*.py"]
+
 target-version = "py312"
 line-length = 120
+
 
 [tool.ruff.lint]
 
@@ -84,6 +88,9 @@ unfixable = []
 
 [tool.isort]
 profile = "black"
+
+[tool.ty.src]
+include = ["src"]
 
 [tool.ruff.lint.per-file-ignores]
 # Tests can use magic values, assertions, and relative imports

@@ -3,7 +3,6 @@ from __future__ import annotations
 import abc
 
 import pytest
-
 from src.endow import BackendBase, Domain, Injectable, Service
 from src.endow.runtime import build_graph
 
@@ -152,6 +151,14 @@ class UnannotatedFactory(Service):
         return cls()
 
 
+class NamedDefaultDoesNotOverrideTypedInput(Service):
+    value: str
+
+    @classmethod
+    def from_env(cls, label: str = "default") -> NamedDefaultDoesNotOverrideTypedInput:
+        return cls()
+
+
 def test_builds_a_shared_graph_per_root() -> None:
     backend = AppBackend.from_env(db=Db())
 
@@ -265,3 +272,9 @@ def test_variadic_factory_parameters_are_ignored() -> None:
 def test_unannotated_factory_parameter_requires_named_runtime_input() -> None:
     with pytest.raises(TypeError, match="Missing runtime input 'db' for from_env\\(\\)"):
         build_graph(UnannotatedFactory, {"database": Db()})
+
+
+def test_type_based_runtime_inputs_override_local_factory_defaults() -> None:
+    service = build_graph(NamedDefaultDoesNotOverrideTypedInput, {"runtime_value": "from-runtime"})
+
+    assert service.value == "from-runtime"

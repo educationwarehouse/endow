@@ -17,7 +17,19 @@ dev = [
 
 [tool.hatch.version]
 path = "src/endow/__about__.py"
+[tool.pytest]
+pythonpath = [
+    "src",
+]
 
+[tool.coverage.report]
+exclude_also = [
+    "if TYPE_CHECKING:",
+    "if t.TYPE_CHECKING:",
+    "if typing.TYPE_CHECKING:",
+    "except ImportError as e:",
+    "except ImportError:",
+    ]
 
 [tool.ruff]
 target-version = "py312"
@@ -66,6 +78,7 @@ ignore = [
     "S105", "S106", "S107",
     # Ignore complexity
     "C901", "PLR0911", "PLR0912", "PLR0913", "PLR0915",
+    "ANN401", # t.Any
 ]
 unfixable = []
 
@@ -83,3 +96,16 @@ change_log = "CHANGELOG.md"
 upload_to_repository = false
 upload_to_release = false
 build_command = "hatch build"
+
+[tool.su6]
+directory = "src"
+stop-after-first-failure = true
+include = [
+    "ruff",
+    "mypy",
+    "bandit",
+    "pytest",
+]
+exclude = []
+coverage = 100
+badge = false

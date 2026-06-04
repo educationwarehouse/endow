@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import abc
 import os
-from typing import Self
+import typing as t
 
 from pydal import DAL
 
-from endow import Backend, Domain, Service
+from endow import BackendBase, Domain, Service
 
 
 class Mailer(Service, abc.ABC):
@@ -14,44 +14,74 @@ class Mailer(Service, abc.ABC):
     db: DAL
 
     @classmethod
-    def from_env(cls, db: DAL) -> Self:
-        if os.environ["SMTP_FAKE"] == "1":
+    def from_env(cls, db: DAL) -> t.Self:
+        if os.environ.get("SMTP_FAKE") == "1":
             return FakeMailer.from_env(db=db)
-        if os.environ.get("SMTP_API") == "1":
+        elif os.environ.get("SMTP_API") == "1":
             return APIMailer.from_env(db=db)
-        return SMTPMailer.from_env(db=db)
+        else:
+            return SMTPMailer.from_env(db=db)
 
     @abc.abstractmethod
     def send(self, recipient: str, subject: str, body: str) -> None:
-        raise NotImplementedError
+        raise NotImplementedError()
 
 
 class SMTPMailer(Mailer):
-    @classmethod
-    def from_env(cls, db: DAL) -> Self: ...
+    def __init__(self, smtp_credentials: dict[str, str]) -> None:
+        super().__init__()
+        self.smtp_credentials = smtp_credentials
 
-    def send(self, recipient: str, subject: str, body: str) -> None: ...
+    def send(self, recipient: str, subject: str, body: str) -> None:
+        self.applog.track(
+            "mailer.smtp.sent",
+            recipient=recipient,
+            subject=subject,
+            body=body,
+        )
+
+    @classmethod
+    def from_env(cls, db: DAL) -> t.Self:
+        return cls(smtp_credentials=dict(os.environ))
 
 
 class FakeMailer(Mailer):
     @classmethod
-    def from_env(cls, db: DAL) -> Self: ...
+    def from_env(cls, db: DAL) -> t.Self:
+        return cls()
 
-    def send(self, recipient: str, subject: str, body: str) -> None: ...
+    def send(self, recipient: str, subject: str, body: str) -> None:
+        self.applog.track(
+            "mailer.fake.sent",
+            recipient=recipient,
+            subject=subject,
+            body=body,
+        )
 
 
 class APIMailer(Mailer):
     @classmethod
-    def from_env(cls, db: DAL) -> Self: ...
+    def from_env(cls, _: DAL) -> t.Self:
+        return cls()
 
-    def send(self, recipient: str, subject: str, body: str) -> None: ...
+    def send(self, recipient: str, subject: str, body: str) -> None:
+        self.applog.track(
+            "mailer.api.sent",
+            recipient=recipient,
+            subject=subject,
+            body=body,
+        )
 
 
 class Applog(Service):
-    @classmethod
-    def from_env(cls, db: DAL) -> Self: ...
+    db: DAL
 
-    def track(self, event: str, **context: object) -> None: ...
+    @classmethod
+    def from_env(cls, _db: DAL) -> t.Self:
+        return cls()
+
+    def track(self, event: str, **context: t.Any) -> None:
+        print(event, context)
 
 
 class Products(Domain):
@@ -87,7 +117,7 @@ class Methods(Domain):
         )
 
 
-class AppBackend(Backend):
+class Backend(BackendBase):
     products: Products
     methods: Methods
 
@@ -98,6 +128,6 @@ class AppBackend(Backend):
 # - Nested from_env(...) hooks may ask for runtime inputs such as `db`.
 # - Cycles like Products <-> Methods should work without wrapper types.
 
-db = DAL(...)
-backend = AppBackend.from_env(db=db)
+db = DAL("sqlite:memory:")
+backend = Backend.from_env(db=db)
 backend.methods.update(method_id=42, product_id=7)

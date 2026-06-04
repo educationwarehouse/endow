@@ -4,7 +4,8 @@ import abc
 
 import pytest
 
-from src.endow import Backend, Domain, Injectable, Service
+from src.endow import BackendBase, Domain, Injectable, Service
+from src.endow.runtime import build_graph
 
 
 class Db:
@@ -21,9 +22,7 @@ class Applog(Service):
 
     @classmethod
     def from_env(cls, db: Db) -> Applog:
-        instance = cls()
-        instance.db = db
-        return instance
+        return cls()
 
     def track(self, event: str) -> None:
         self.db.events.append(event)
@@ -47,9 +46,7 @@ class Mailer(Service, abc.ABC):
 class SMTPMailer(Mailer):
     @classmethod
     def from_env(cls, db: Db) -> SMTPMailer:
-        instance = cls()
-        instance.db = db
-        return instance
+        return cls()
 
     def send(self, recipient: str, subject: str, body: str) -> None:
         self.applog.track(f"smtp:{recipient}:{subject}:{body}")
@@ -58,9 +55,7 @@ class SMTPMailer(Mailer):
 class FakeMailer(Mailer):
     @classmethod
     def from_env(cls, db: Db) -> FakeMailer:
-        instance = cls()
-        instance.db = db
-        return instance
+        return cls()
 
     def send(self, recipient: str, subject: str, body: str) -> None:
         self.applog.track(f"fake:{recipient}:{subject}:{body}")
@@ -87,9 +82,74 @@ class Methods(Domain):
         self.products.update(product_id)
 
 
-class AppBackend(Backend):
+class AppBackend(BackendBase):
     products: Products
     methods: Methods
+
+
+class UnderscorePrefixedApplog(Service):
+    db: Db
+
+    @classmethod
+    def from_env(cls, _db: Db) -> UnderscorePrefixedApplog:
+        return cls()
+
+
+class BareUnderscoreApplog(Service):
+    db: Db
+
+    @classmethod
+    def from_env(cls, _: Db) -> BareUnderscoreApplog:
+        assert _, "unnamed variable should still have value"
+        return cls()
+
+
+class BadFactory(Service):
+    @classmethod
+    def from_env(cls) -> object:
+        return object()
+
+
+class NeedsRuntimeValue(Service):
+    db: Db
+
+
+class UnconstructableValue:
+    def __init__(self, required: str) -> None:
+        self.required = required
+
+
+class NeedsUnconstructableField(Service):
+    value: UnconstructableValue
+
+
+class NeedsUnsupportedAnnotation(Service):
+    value: int | str
+
+
+class DefaultedFactory(Service):
+    db: Db
+    label: str
+
+    @classmethod
+    def from_env(cls, db: Db, label: str = "default") -> DefaultedFactory:
+        return cls()
+
+
+class VariadicFactory(Service):
+    db: Db
+
+    @classmethod
+    def from_env(cls, db: Db, *args: object, **kwargs: object) -> VariadicFactory:
+        return cls()
+
+
+class UnannotatedFactory(Service):
+    db: Db
+
+    @classmethod
+    def from_env(cls, db) -> UnannotatedFactory:
+        return cls()
 
 
 def test_builds_a_shared_graph_per_root() -> None:
@@ -151,3 +211,57 @@ def test_graph_is_executable_after_wiring() -> None:
 def test_missing_runtime_input_raises_a_clear_error() -> None:
     with pytest.raises(TypeError):
         AppBackend.from_env()
+
+
+def test_factory_accepts_underscore_prefixed_runtime_input_names() -> None:
+    db = Db()
+
+    applog = build_graph(UnderscorePrefixedApplog, {"db": db})
+
+    assert applog.db is db
+
+
+def test_factory_accepts_bare_underscore_runtime_input_names() -> None:
+    db = Db()
+
+    applog = build_graph(BareUnderscoreApplog, {"db": db})
+
+    assert applog.db is db
+
+
+def test_factory_return_must_be_injectable() -> None:
+    with pytest.raises(TypeError, match="BadFactory.from_env\\(\\) must return an Injectable instance"):
+        build_graph(BadFactory, {})
+
+
+def test_missing_runtime_input_for_unconstructable_field_raises_clear_error() -> None:
+    with pytest.raises(TypeError, match="Missing runtime input for field 'value'"):
+        build_graph(NeedsUnconstructableField, {})
+
+
+def test_unsupported_annotation_raises_clear_error() -> None:
+    with pytest.raises(TypeError, match="Cannot resolve field 'value'"):
+        build_graph(NeedsUnsupportedAnnotation, {})
+
+
+def test_factory_defaults_are_used_when_runtime_input_is_missing() -> None:
+    db = Db()
+
+    # service = build_graph(DefaultedFactory, {"db": db})
+    service = DefaultedFactory.build(db=db)
+
+    assert service.db is db
+    assert service.label == "default"
+
+
+def test_variadic_factory_parameters_are_ignored() -> None:
+    db = Db()
+
+    service = build_graph(VariadicFactory, {"db": db})
+
+    assert service.db is db
+
+
+def test_unannotated_factory_parameter_requires_named_runtime_input() -> None:
+    with pytest.raises(TypeError, match="Missing runtime input 'db' for from_env\\(\\)"):
+        build_graph(UnannotatedFactory, {"database": Db()})

@@ -18,7 +18,7 @@ class Mailer(Service, abc.ABC):
         if os.environ.get("SMTP_FAKE") == "1":
             return FakeMailer.from_env(db)
         elif os.environ.get("SMTP_API") == "1":
-            return APIMailer.from_env(d)
+            return APIMailer.from_env(db)
         else:
             return SMTPMailer.from_env(db)
 
@@ -129,5 +129,5 @@ class Backend(BackendBase):
 # - Cycles like Products <-> Methods should work without wrapper types.
 
 db = DAL("sqlite:memory:")
-backend = Backend.from_env_checked(db=db)
+backend = Backend.from_env_checked(False, db=db)
 backend.methods.update(method_id=42, product_id=7)

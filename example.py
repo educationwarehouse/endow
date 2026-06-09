@@ -124,10 +124,10 @@ class Backend(BackendBase):
 
 # Contract notes:
 # - Typed attributes are the source of truth for dependency wiring.
-# - Backend.from_env(...) builds one shared graph for this application root.
+# - with_injected(...) builds one shared graph for the requested root.
 # - Nested from_env(...) hooks may ask for runtime inputs such as `db`.
 # - Cycles like Products <-> Methods should work without wrapper types.
 
 db = DAL("sqlite:memory:")
-backend = Backend.from_env_checked(False, db=db)
+backend = Backend.with_injected_checked(False, db=db)
 backend.methods.update(method_id=42, product_id=7)

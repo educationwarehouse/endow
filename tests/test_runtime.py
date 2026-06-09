@@ -4,7 +4,6 @@ import abc
 
 import pytest
 from src.endow import BackendBase, Domain, Injectable, Service
-from src.endow.runtime import build_graph
 
 
 class Db:
@@ -169,7 +168,7 @@ class NamedDefaultDoesNotOverrideTypedInput(Service):
 
 
 def test_builds_a_shared_graph_per_root() -> None:
-    backend = AppBackend.from_env(db=Db(), value=0)
+    backend = AppBackend.with_injected(db=Db(), value=0)
 
     assert backend.products is backend.methods.products
     assert backend.products.applog is backend.methods.applog
@@ -177,16 +176,23 @@ def test_builds_a_shared_graph_per_root() -> None:
 
 
 def test_separate_roots_are_isolated() -> None:
-    first = AppBackend.from_env(db=Db(), value=0)
-    second = AppBackend.from_env(db=Db(), value=0)
+    first = AppBackend.with_injected(db=Db(), value=0)
+    second = AppBackend.with_injected(db=Db(), value=0)
 
     assert first is not second
     assert first.products is not second.products
     assert first.products.applog is not second.products.applog
 
 
-def test_direct_cycles_work_without_wrapper_types() -> None:
+def test_backend_from_env_alias_matches_with_injected() -> None:
     backend = AppBackend.from_env(db=Db(), value=0)
+
+    assert isinstance(backend.products, Products)
+    assert isinstance(backend.methods, Methods)
+
+
+def test_direct_cycles_work_without_wrapper_types() -> None:
+    backend = AppBackend.with_injected(db=Db(), value=0)
 
     assert backend.products.methods is backend.methods
     assert backend.methods.products is backend.products
@@ -194,26 +200,45 @@ def test_direct_cycles_work_without_wrapper_types() -> None:
 
 def test_factory_selection_can_return_a_concrete_subclass() -> None:
     db = Db()
-    backend = AppBackend.from_env(db=db, value=0)
+    backend = AppBackend.with_injected(db=db, value=0)
     assert isinstance(backend.products.mailer, SMTPMailer)
 
     fake_db = Db()
     fake_db.events.append("use-fake")
-    fake_backend = AppBackend.from_env(db=fake_db, value=0)
+    fake_backend = AppBackend.with_injected(db=fake_db, value=0)
     assert isinstance(fake_backend.products.mailer, FakeMailer)
 
 
 def test_runtime_input_flows_to_nested_factories() -> None:
     db = Db()
-    backend = AppBackend.from_env(db=db, value=0)
+    backend = AppBackend.with_injected(db=db, value=0)
 
     assert backend.products.applog.db is db
     assert backend.products.mailer.db is db
 
 
+def test_domain_with_injected_builds_a_standalone_graph() -> None:
+    db = Db()
+
+    products = Products.with_injected(db=db, value=0)
+
+    assert isinstance(products, Products)
+    assert products.methods.products is products
+    assert products.applog.db is db
+
+
+def test_service_with_injected_builds_a_standalone_graph() -> None:
+    db = Db()
+
+    applog = Applog.with_injected(db=db)
+
+    assert isinstance(applog, Applog)
+    assert applog.db is db
+
+
 def test_graph_is_executable_after_wiring() -> None:
     db = Db()
-    backend = AppBackend.from_env(db=db, value=0)
+    backend = AppBackend.with_injected(db=db, value=0)
 
     backend.methods.update(method_id=2, product_id=7)
 
@@ -226,18 +251,18 @@ def test_graph_is_executable_after_wiring() -> None:
 
 def test_missing_runtime_input_raises_a_clear_error() -> None:
     with pytest.raises(TypeError):
-        AppBackend.from_env()
+        AppBackend.with_injected()
 
 
 def test_missing_runtime_input_for_zero_arg_class_field_raises_clear_error() -> None:
     with pytest.raises(TypeError, match="Missing runtime input for field 'db'"):
-        build_graph(DefaultConstructableDb, {})
+        DefaultConstructableDb.with_injected()
 
 
 def test_factory_accepts_underscore_prefixed_runtime_input_names() -> None:
     db = Db()
 
-    applog = build_graph(UnderscorePrefixedApplog, {"db": db})
+    applog = UnderscorePrefixedApplog.with_injected(db=db)
 
     assert applog.db is db
 
@@ -245,12 +270,19 @@ def test_factory_accepts_underscore_prefixed_runtime_input_names() -> None:
 def test_factory_accepts_bare_underscore_runtime_input_names() -> None:
     db = Db()
 
-    applog = build_graph(BareUnderscoreApplog, {"db": db})
+    applog = BareUnderscoreApplog.with_injected(db=db)
 
     assert applog.db is db
 
 
 def test_from_env_checked_warns_on_service_to_domain_dependencies() -> None:
+    with pytest.warns(UserWarning, match="Service 'Reports' should not depend on Domain 'Products'"):
+        backend = AppBackend.with_injected_checked(strict=False, db=Db(), value=0)
+
+    assert backend.reports.products is backend.products
+
+
+def test_from_env_checked_alias_warns_on_service_to_domain_dependencies() -> None:
     with pytest.warns(UserWarning, match="Service 'Reports' should not depend on Domain 'Products'"):
         backend = AppBackend.from_env_checked(strict=False, db=Db(), value=0)
 
@@ -262,28 +294,36 @@ def test_from_env_checked_can_fail_on_service_to_domain_dependencies() -> None:
         TypeError,
         match="Service 'Reports' should not depend on Domain 'Products' via field 'products'",
     ):
-        AppBackend.from_env_checked(strict=True, db=Db(), value=0)
+        AppBackend.with_injected_checked(strict=True, db=Db(), value=0)
 
 
 def test_factory_return_must_be_injectable() -> None:
     with pytest.raises(TypeError, match="BadFactory.from_env\\(\\) must return an Injectable instance"):
-        build_graph(BadFactory, {})
+        BadFactory.with_injected()
 
 
 def test_missing_runtime_input_for_unconstructable_field_raises_clear_error() -> None:
     with pytest.raises(TypeError, match="Missing runtime input for field 'value'"):
-        build_graph(NeedsUnconstructableField, {})
+        NeedsUnconstructableField.with_injected()
 
 
 def test_unsupported_annotation_raises_clear_error() -> None:
     with pytest.raises(TypeError, match="Cannot resolve field 'value'"):
-        build_graph(NeedsUnsupportedAnnotation, {})
+        NeedsUnsupportedAnnotation.with_injected()
 
 
 def test_factory_defaults_are_used_when_runtime_input_is_missing() -> None:
     db = Db()
 
-    # service = build_graph(DefaultedFactory, {"db": db})
+    service = DefaultedFactory.with_injected(db=db)
+
+    assert service.db is db
+    assert service.label == "default"
+
+
+def test_build_alias_matches_with_injected() -> None:
+    db = Db()
+
     service = DefaultedFactory.build(db=db)
 
     assert service.db is db
@@ -293,17 +333,17 @@ def test_factory_defaults_are_used_when_runtime_input_is_missing() -> None:
 def test_variadic_factory_parameters_are_ignored() -> None:
     db = Db()
 
-    service = build_graph(VariadicFactory, {"db": db})
+    service = VariadicFactory.with_injected(db=db)
 
     assert service.db is db
 
 
 def test_unannotated_factory_parameter_requires_named_runtime_input() -> None:
     with pytest.raises(TypeError, match="Missing runtime input 'db' for from_env\\(\\)"):
-        build_graph(UnannotatedFactory, {"database": Db()})
+        UnannotatedFactory.with_injected(database=Db())
 
 
 def test_type_based_runtime_inputs_override_local_factory_defaults() -> None:
-    service = build_graph(NamedDefaultDoesNotOverrideTypedInput, {"runtime_value": "from-runtime"})
+    service = NamedDefaultDoesNotOverrideTypedInput.with_injected(runtime_value="from-runtime")
 
     assert service.value == "from-runtime"

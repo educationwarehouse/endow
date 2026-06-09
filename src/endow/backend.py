@@ -12,11 +12,21 @@ class BackendBase(Injectable):
     """Root object that builds a graph from runtime inputs."""
 
     @classmethod
-    def from_env(cls, **runtime_inputs: t.Any) -> t.Self:
+    def with_injected(cls, **runtime_inputs: t.Any) -> t.Self:
         """Build a backend instance from the provided runtime inputs."""
         return build_graph(cls, runtime_inputs)
 
     @classmethod
-    def from_env_checked(cls, strict: bool, **runtime_inputs: t.Any) -> t.Self:
+    def with_injected_checked(cls, strict: bool, **runtime_inputs: t.Any) -> t.Self:
         """Build a backend instance and check Service-to-Domain dependencies."""
         return build_graph(cls, runtime_inputs, strict=strict)
+
+    @classmethod
+    def from_env(cls, **runtime_inputs: t.Any) -> t.Self:
+        """Backward-compatible alias for building a backend instance."""
+        return cls.with_injected(**runtime_inputs)
+
+    @classmethod
+    def from_env_checked(cls, strict: bool, **runtime_inputs: t.Any) -> t.Self:
+        """Backward-compatible alias for building a checked backend instance."""
+        return cls.with_injected_checked(strict, **runtime_inputs)

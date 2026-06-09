@@ -62,14 +62,14 @@ class AppBackend(BackendBase):
 
 
 db = DB("postgresql://user:pass@localhost/app")
-backend = AppBackend.from_env(db=db)
+backend = AppBackend.with_injected(db=db)
 backend.products.update(product_id=7)
 ```
 
 ## How it works
 
 - Typed attributes are the source of truth for wiring.
-- `BackendBase.from_env(...)` builds one shared object graph for the application root.
+- `with_injected(...)` builds one shared object graph for the requested class.
 - `Service` and `Domain` are lightweight markers that participate in the graph.
 - Nested `from_env(...)` hooks can receive runtime inputs from the root call.
 - Cycles in the graph are supported because instances are cached during construction.
@@ -88,12 +88,12 @@ The dependency direction should stay one way:
 
 That keeps the graph aligned with layered architecture and one-way data flow: the business layer can use infrastructure, but infrastructure should not reach back into business logic.
 
-By default, that rule is a convention rather than an enforced runtime check. If you want the graph to enforce it, use `BackendBase.from_env_checked(strict, ...)`:
+By default, that rule is a convention rather than an enforced runtime check. If you want the graph to enforce it, use `BackendBase.with_injected_checked(strict, ...)`:
 
 - `strict=True` turns `Service`-to-`Domain` dependencies into errors.
 - `strict=False` leaves the dependency in place but emits a warning.
 
-Use `BackendBase.from_env(...)` when you want the current permissive behavior without checking.
+Use `with_injected(...)` when you want the current permissive behavior without checking.
 
 ## Why not make everything a Service
 

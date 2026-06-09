@@ -3,10 +3,24 @@ from __future__ import annotations
 import abc
 import os
 import typing as t
+from typing import Protocol, runtime_checkable
 
 from pydal import DAL
 
 from endow import BackendBase, Domain, Service
+
+
+@runtime_checkable
+class AuthContext(Protocol):
+    def can(self, permission: str) -> bool: ...
+
+
+class StaticAuth:
+    def __init__(self, allowed_permissions: set[str]) -> None:
+        self.allowed_permissions = allowed_permissions
+
+    def can(self, permission: str) -> bool:
+        return permission in self.allowed_permissions
 
 
 class Mailer(Service, abc.ABC):
@@ -85,11 +99,15 @@ class Applog(Service):
 
 
 class Products(Domain):
+    auth: AuthContext
     methods: Methods
     mailer: Mailer
     applog: Applog
 
     def update(self, product_id: int) -> None:
+        if not self.auth.can("products.update"):
+            msg = "missing products.update permission"
+            raise PermissionError(msg)
         self.applog.track("products.update.started", product_id=product_id)
         self.mailer.send(
             recipient="ops@example.com",
@@ -125,9 +143,11 @@ class Backend(BackendBase):
 # Contract notes:
 # - Typed attributes are the source of truth for dependency wiring.
 # - with_injected(...) builds one shared graph for the requested root.
+# - Runtime inputs such as `db` and `auth` can satisfy protocol-typed fields.
 # - Nested from_env(...) hooks may ask for runtime inputs such as `db`.
 # - Cycles like Products <-> Methods should work without wrapper types.
 
 db = DAL("sqlite:memory:")
-backend = Backend.with_injected_checked(False, db=db)
+auth = StaticAuth({"products.update"})
+backend = Backend.with_injected_checked(False, db=db, auth=auth)
 backend.methods.update(method_id=42, product_id=7)

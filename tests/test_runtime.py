@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import abc
+from typing import Protocol, runtime_checkable
 
 import pytest
 from src.endow import BackendBase, Domain, Injectable, Service
@@ -9,6 +10,19 @@ from src.endow import BackendBase, Domain, Injectable, Service
 class Db:
     def __init__(self) -> None:
         self.events: list[str] = []
+
+
+@runtime_checkable
+class AuthContext(Protocol):
+    def can(self, permission: str) -> bool: ...
+
+
+class StaticAuth:
+    def __init__(self, allowed_permissions: set[str]) -> None:
+        self.allowed_permissions = allowed_permissions
+
+    def can(self, permission: str) -> bool:
+        return permission in self.allowed_permissions
 
 
 class Counter(Injectable):
@@ -60,12 +74,16 @@ class FakeMailer(Mailer):
 
 
 class Products(Domain):
+    auth: AuthContext
     methods: Methods
     mailer: Mailer
     applog: Applog
     counter: Counter
 
     def update(self, product_id: int) -> None:
+        if not self.auth.can("products.update"):
+            msg = "missing products.update permission"
+            raise PermissionError(msg)
         self.counter.value += 1
         self.applog.track(f"products:{product_id}:{self.counter.value}")
         self.mailer.send("ops@example.com", "updated", str(product_id))
@@ -168,7 +186,7 @@ class NamedDefaultDoesNotOverrideTypedInput(Service):
 
 
 def test_builds_a_shared_graph_per_root() -> None:
-    backend = AppBackend.with_injected(db=Db(), value=0)
+    backend = AppBackend.with_injected(db=Db(), value=0, auth=StaticAuth({"products.update"}))
 
     assert backend.products is backend.methods.products
     assert backend.products.applog is backend.methods.applog
@@ -176,8 +194,9 @@ def test_builds_a_shared_graph_per_root() -> None:
 
 
 def test_separate_roots_are_isolated() -> None:
-    first = AppBackend.with_injected(db=Db(), value=0)
-    second = AppBackend.with_injected(db=Db(), value=0)
+    auth = StaticAuth({"products.update"})
+    first = AppBackend.with_injected(db=Db(), value=0, auth=auth)
+    second = AppBackend.with_injected(db=Db(), value=0, auth=auth)
 
     assert first is not second
     assert first.products is not second.products
@@ -185,14 +204,14 @@ def test_separate_roots_are_isolated() -> None:
 
 
 def test_backend_from_env_alias_matches_with_injected() -> None:
-    backend = AppBackend.from_env(db=Db(), value=0)
+    backend = AppBackend.from_env(db=Db(), value=0, auth=StaticAuth({"products.update"}))
 
     assert isinstance(backend.products, Products)
     assert isinstance(backend.methods, Methods)
 
 
 def test_direct_cycles_work_without_wrapper_types() -> None:
-    backend = AppBackend.with_injected(db=Db(), value=0)
+    backend = AppBackend.with_injected(db=Db(), value=0, auth=StaticAuth({"products.update"}))
 
     assert backend.products.methods is backend.methods
     assert backend.methods.products is backend.products
@@ -200,18 +219,19 @@ def test_direct_cycles_work_without_wrapper_types() -> None:
 
 def test_factory_selection_can_return_a_concrete_subclass() -> None:
     db = Db()
-    backend = AppBackend.with_injected(db=db, value=0)
+    auth = StaticAuth({"products.update"})
+    backend = AppBackend.with_injected(db=db, value=0, auth=auth)
     assert isinstance(backend.products.mailer, SMTPMailer)
 
     fake_db = Db()
     fake_db.events.append("use-fake")
-    fake_backend = AppBackend.with_injected(db=fake_db, value=0)
+    fake_backend = AppBackend.with_injected(db=fake_db, value=0, auth=auth)
     assert isinstance(fake_backend.products.mailer, FakeMailer)
 
 
 def test_runtime_input_flows_to_nested_factories() -> None:
     db = Db()
-    backend = AppBackend.with_injected(db=db, value=0)
+    backend = AppBackend.with_injected(db=db, value=0, auth=StaticAuth({"products.update"}))
 
     assert backend.products.applog.db is db
     assert backend.products.mailer.db is db
@@ -219,12 +239,14 @@ def test_runtime_input_flows_to_nested_factories() -> None:
 
 def test_domain_with_injected_builds_a_standalone_graph() -> None:
     db = Db()
+    auth = StaticAuth({"products.update"})
 
-    products = Products.with_injected(db=db, value=0)
+    products = Products.with_injected(db=db, value=0, auth=auth)
 
     assert isinstance(products, Products)
     assert products.methods.products is products
     assert products.applog.db is db
+    assert products.auth is auth
 
 
 def test_service_with_injected_builds_a_standalone_graph() -> None:
@@ -238,7 +260,7 @@ def test_service_with_injected_builds_a_standalone_graph() -> None:
 
 def test_graph_is_executable_after_wiring() -> None:
     db = Db()
-    backend = AppBackend.with_injected(db=db, value=0)
+    backend = AppBackend.with_injected(db=db, value=0, auth=StaticAuth({"products.update"}))
 
     backend.methods.update(method_id=2, product_id=7)
 
@@ -250,8 +272,16 @@ def test_graph_is_executable_after_wiring() -> None:
 
 
 def test_missing_runtime_input_raises_a_clear_error() -> None:
-    with pytest.raises(TypeError):
+    with pytest.raises(TypeError, match="Missing runtime input for field 'auth'"):
         AppBackend.with_injected()
+
+
+def test_protocol_typed_auth_runtime_input_is_injected() -> None:
+    auth = StaticAuth({"products.update"})
+
+    backend = AppBackend.with_injected(db=Db(), value=0, auth=auth)
+
+    assert backend.products.auth is auth
 
 
 def test_missing_runtime_input_for_zero_arg_class_field_raises_clear_error() -> None:
@@ -277,14 +307,24 @@ def test_factory_accepts_bare_underscore_runtime_input_names() -> None:
 
 def test_from_env_checked_warns_on_service_to_domain_dependencies() -> None:
     with pytest.warns(UserWarning, match="Service 'Reports' should not depend on Domain 'Products'"):
-        backend = AppBackend.with_injected_checked(strict=False, db=Db(), value=0)
+        backend = AppBackend.with_injected_checked(
+            strict=False,
+            db=Db(),
+            value=0,
+            auth=StaticAuth({"products.update"}),
+        )
 
     assert backend.reports.products is backend.products
 
 
 def test_from_env_checked_alias_warns_on_service_to_domain_dependencies() -> None:
     with pytest.warns(UserWarning, match="Service 'Reports' should not depend on Domain 'Products'"):
-        backend = AppBackend.from_env_checked(strict=False, db=Db(), value=0)
+        backend = AppBackend.from_env_checked(
+            strict=False,
+            db=Db(),
+            value=0,
+            auth=StaticAuth({"products.update"}),
+        )
 
     assert backend.reports.products is backend.products
 
@@ -294,7 +334,12 @@ def test_from_env_checked_can_fail_on_service_to_domain_dependencies() -> None:
         TypeError,
         match="Service 'Reports' should not depend on Domain 'Products' via field 'products'",
     ):
-        AppBackend.with_injected_checked(strict=True, db=Db(), value=0)
+        AppBackend.with_injected_checked(
+            strict=True,
+            db=Db(),
+            value=0,
+            auth=StaticAuth({"products.update"}),
+        )
 
 
 def test_factory_return_must_be_injectable() -> None:

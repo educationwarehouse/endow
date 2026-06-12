@@ -2,6 +2,12 @@
 
 <!--next-version-placeholder-->
 
+## v0.1.1 (2026-06-12)
+
+### Documentation
+
+* New tagline :D ([`ce7808f`](https://github.com/robinvandernoord/endow/commit/ce7808f1496819b7c9e2e47c966040df1a5c1136))
+
 ## v0.1.0 (2026-06-12)
 
 ### Feature

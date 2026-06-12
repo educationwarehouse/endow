@@ -7,6 +7,7 @@ name = "endow"
 dynamic = ["version"]
 description = "to provide with something freely or naturally"
 requires-python = ">=3.12"
+readme = { file = "README.md", content-type = "text/markdown" }
 
 [project.optional-dependencies]
 dev = [
@@ -17,11 +18,27 @@ dev = [
 
 [tool.hatch.version]
 path = "src/endow/__about__.py"
+[tool.pytest]
+pythonpath = [
+    "src",
+]
 
+[tool.coverage.report]
+exclude_also = [
+    "if TYPE_CHECKING:",
+    "if t.TYPE_CHECKING:",
+    "if typing.TYPE_CHECKING:",
+    "except ImportError as e:",
+    "except ImportError:",
+    ]
 
 [tool.ruff]
+src = ["src"]
+include = ["src/**/*.py"]
+
 target-version = "py312"
 line-length = 120
+
 
 [tool.ruff.lint]
 
@@ -31,6 +48,7 @@ select = [
     "W", # pycodestyle warning
     "Q", # quotes
     "A", # builtins
+    "D", # docstrings
     # "C4", # comprehensions
     # "RET", # return
     "SIM", # simplify
@@ -49,7 +67,7 @@ select = [
     # "S", # bandit (security)
     # "BLE", # blind except
     # "FBT", # boolean trap
-    # "B", # bugbear
+    "B", # bugbear
     # "DTZ", # datetimes
     # "T10", # debugger
     # "DJ", # django
@@ -60,17 +78,23 @@ select = [
 ignore = [
     # Allow non-abstract empty methods in abstract base classes
     "B027",
+    # Use formatter-compatible docstring conventions.
+    "D203", "D213",
     # Allow boolean positional values in function calls, like `dict.get(... True)`
     "FBT003",
     # Ignore checks for possible passwords
     "S105", "S106", "S107",
     # Ignore complexity
     "C901", "PLR0911", "PLR0912", "PLR0913", "PLR0915",
+    "ANN401", # t.Any
 ]
 unfixable = []
 
 [tool.isort]
 profile = "black"
+
+[tool.ty.src]
+include = ["src"]
 
 [tool.ruff.lint.per-file-ignores]
 # Tests can use magic values, assertions, and relative imports
@@ -83,3 +107,16 @@ change_log = "CHANGELOG.md"
 upload_to_repository = false
 upload_to_release = false
 build_command = "hatch build"
+
+[tool.su6]
+directory = "src"
+stop-after-first-failure = true
+include = [
+    "ruff",
+    "mypy",
+    "bandit",
+    "pytest",
+]
+exclude = []
+coverage = 100
+badge = false

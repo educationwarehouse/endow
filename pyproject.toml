@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "endow"
 dynamic = ["version"]
-description = "to provide with something freely or naturally"
+description = "DI without the boilerplate. Authorization without the escape hatches."
 requires-python = ">=3.12"
 readme = { file = "README.md", content-type = "text/markdown" }
 

@@ -1,7 +1,7 @@
 # endow
 
-`endow` is a small dependency-injection runtime for Python 3.12+ applications.
-It wires objects from typed attributes, usually builds a shared graph from a backend root, and lets you pass runtime values such as `db` into the graph when it is created. When needed, you can also build an individual `Domain`, `Service`, or other `Injectable` directly.
+`endow` is a framework-agnostic, opinionated way to structure your backend.
+It is a small dependency-injection runtime for Python 3.12+ applications. It wires objects from typed attributes, usually builds a shared graph from a backend root, and lets you pass runtime values such as `db` into the graph when it is created. When needed, you can also build an individual `Domain`, `Service`, or other `Injectable` directly.
 
 ## Install
 

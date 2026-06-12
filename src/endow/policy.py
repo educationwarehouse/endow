@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import typing as t
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
 from .base import Injectable
@@ -19,38 +21,17 @@ class PermissionDenied(AuthorizationError):
     """Raised when the current actor is not allowed to perform an action."""
 
 
-@dataclass(frozen=True, slots=True)
-class AuthorizationDecision:
-    """A reusable allow-or-deny policy decision."""
-
-    allowed: bool
-    reason: str | None = None
-
-    def require(self) -> None:
-        """Raise when the decision denies the requested action."""
-        if not self.allowed:
-            raise PermissionDenied(self.reason or "Permission denied")
+TValue = t.TypeVar("TValue")
 
 
 class BasePolicy(Injectable):
     """Base class for reusable, injectable authorization policies."""
 
     @staticmethod
-    def allow(reason: str | None = None) -> AuthorizationDecision:
-        """Return an allowing decision."""
-        return AuthorizationDecision(allowed=True, reason=reason)
-
-    @staticmethod
-    def deny(reason: str | None = None) -> AuthorizationDecision:
-        """Return a denying decision."""
-        return AuthorizationDecision(allowed=False, reason=reason)
-
-    @staticmethod
-    def require_allowed(decision: AuthorizationDecision | bool, reason: str | None = None) -> None:
+    def require_allowed(is_allowed: bool, reason: str | None = None) -> None:
         """Raise when the provided decision denies the action."""
-        if isinstance(decision, bool):
-            decision = AuthorizationDecision(allowed=decision, reason=reason)
-        decision.require()
+        if not is_allowed:
+            raise PermissionDenied(reason or "Permission denied")
 
     @staticmethod
     def require_authenticated(
@@ -60,3 +41,37 @@ class BasePolicy(Injectable):
         """Raise when an action requires an authenticated actor."""
         if not is_authenticated:
             raise AuthenticationRequired(reason or "Authentication required")
+
+
+class AuthorizationResult(ABC, t.Generic[TValue]):
+    """Base class for allowed-or-denied authorization results."""
+
+    @abstractmethod
+    def require(self) -> Allow[TValue]:
+        """Return the allowed result or raise if denied."""
+
+
+@dataclass(frozen=True, slots=True)
+class Allow(AuthorizationResult[TValue]):
+    """An allowed authorization result with a query-transform callback."""
+
+    apply: t.Callable[[TValue], TValue]
+
+    def require(self) -> Allow[TValue]:
+        """Return the allowed result unchanged."""
+        return self
+
+    def __call__(self, value: TValue) -> TValue:
+        """Apply the stored callback to a value."""
+        return self.apply(value)
+
+
+@dataclass(frozen=True, slots=True)
+class Deny(AuthorizationResult[TValue]):
+    """A denied authorization result with a rejection reason."""
+
+    reason: str
+
+    def require(self) -> t.NoReturn:
+        """Raise when the result denies the requested action."""
+        raise PermissionDenied(self.reason)

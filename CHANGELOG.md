@@ -2,6 +2,12 @@
 
 <!--next-version-placeholder-->
 
+## v0.1.2 (2026-06-15)
+
+### Fix
+
+* **runtime:** Preserve pre-defined attributes during graph wiring ([`103203d`](https://github.com/robinvandernoord/endow/commit/103203d54fe438ed66e7d613dbffaad0845ae48e))
+
 ## v0.1.1 (2026-06-12)
 
 ### Documentation

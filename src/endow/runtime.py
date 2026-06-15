@@ -55,6 +55,8 @@ class Graph:
     ) -> None:
         owner_type = type(instance)
         for name, annotation in iter_injected_fields(owner_type).items():
+            if inspect.getattr_static(instance, name, MISSING) is not MISSING:
+                continue
             self._check_dependency_direction(owner_type, name, annotation)
             setattr(instance, name, self._resolve(name, annotation, local_inputs, type_inputs))
 

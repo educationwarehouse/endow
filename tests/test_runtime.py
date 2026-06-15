@@ -5,7 +5,7 @@ from typing import Protocol, runtime_checkable
 
 import pytest
 from src.endow import BackendBase, Domain, Injectable, Service
-
+from src import endow
 
 class Db:
     def __init__(self) -> None:
@@ -44,6 +44,9 @@ class Mailer(Service, abc.ABC):
     applog: Applog
     db: Db
 
+    sender: str
+    reply_to: str = "noreply@default"
+
     @classmethod
     def from_env(cls, db: Db) -> Mailer:
         if db.events and db.events[0] == "use-fake":
@@ -56,6 +59,10 @@ class Mailer(Service, abc.ABC):
 
 
 class SMTPMailer(Mailer):
+    def __init__(self):
+        super().__init__()
+        self.sender = "from@smtp"
+
     @classmethod
     def from_env(cls, db: Db) -> SMTPMailer:
         return cls()
@@ -65,6 +72,10 @@ class SMTPMailer(Mailer):
 
 
 class FakeMailer(Mailer):
+    def __init__(self):
+        super().__init__()
+        self.sender = "mock@internal"
+
     @classmethod
     def from_env(cls, db: Db) -> FakeMailer:
         return cls()

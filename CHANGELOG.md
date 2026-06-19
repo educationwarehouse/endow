@@ -2,6 +2,12 @@
 
 <!--next-version-placeholder-->
 
+## v0.1.5 (2026-06-19)
+
+### Fix
+
+* Improved graph resolving for cyclic dependencies spread over multiple modules ([`5e6db08`](https://github.com/educationwarehouse/endow/commit/5e6db088118c3c5408216ab6c8e9652a3dbdfa46))
+
 ## v0.1.4 (2026-06-19)
 
 ### Fix

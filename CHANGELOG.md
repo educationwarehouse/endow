@@ -2,6 +2,12 @@
 
 <!--next-version-placeholder-->
 
+## v0.1.4 (2026-06-19)
+
+### Fix
+
+* More debugging information on `missing runtime input` error ([`02dd422`](https://github.com/educationwarehouse/endow/commit/02dd422669232368135eba894f742125c3a33c0f))
+
 ## v0.1.3 (2026-06-19)
 
 ### Fix

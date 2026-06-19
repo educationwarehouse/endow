@@ -10,6 +10,6 @@ __all__ = [
     "Domain",
     "Injectable",
     "Service",
-    "policy",
     "__version__",
+    "policy",
 ]

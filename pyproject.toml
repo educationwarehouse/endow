@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 name = "endow"
 dynamic = ["version"]
 description = "DI without the boilerplate. Authorization without the escape hatches."
-requires-python = ">=3.12"
+requires-python = ">=3.14"
 readme = { file = "README.md", content-type = "text/markdown" }
 
 [project.optional-dependencies]
@@ -87,6 +87,7 @@ ignore = [
     # Ignore complexity
     "C901", "PLR0911", "PLR0912", "PLR0913", "PLR0915",
     "ANN401", # t.Any
+    "N818", # error naming
 ]
 unfixable = []
 

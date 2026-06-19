@@ -7,6 +7,8 @@ import sys
 import typing as t
 import warnings
 
+import annotationlib
+
 from .base import Domain, Injectable, Service
 
 MISSING = object()
@@ -83,7 +85,11 @@ class Graph:
         annotation: t.Any,
         local_inputs: dict[str, t.Any] | None = None,
         type_inputs: dict[str, t.Any] | None = None,
-    ) -> t.Any:
+        skip_private: bool = True,
+    ) -> t.Any | None:
+        if name.startswith("_"):
+            return None
+
         if inspect.isclass(annotation) and issubclass(annotation, Injectable):
             return self.build(annotation)
 
@@ -94,6 +100,13 @@ class Graph:
         if inspect.isclass(annotation):
             msg = f"Missing runtime input for field '{name}'"
             raise TypeError(msg)
+
+        if isinstance(annotation, annotationlib.ForwardRef):
+            return annotation.evaluate(
+                locals=locals(),
+                globals=globals(),
+                type_params=(),
+            )
 
         msg = f"Cannot resolve field '{name}' with annotation {annotation!r}"
         raise TypeError(msg)
@@ -179,6 +192,14 @@ def build_graph[T: Injectable](
     return graph.build(cls)
 
 
+def get_annotations(base: type) -> dict[str, type]:
+    """Get type hints, using `annotationlib.Format.FORWARDREF` to defer missing types."""
+    module = sys.modules[base.__module__]
+
+    # if reference doesn't exist, don't crash here. Rather let Graph._resolve deal with it (e.g decide to skip/raise)
+    return t.get_type_hints(base, globalns=vars(module), format=annotationlib.Format.FORWARDREF)
+
+
 def iter_injected_fields(cls: type[Injectable]) -> dict[str, t.Any]:
     """Return annotated injected fields declared on ``cls`` and its bases."""
     fields: dict[str, t.Any] = {}
@@ -187,8 +208,7 @@ def iter_injected_fields(cls: type[Injectable]) -> dict[str, t.Any]:
         if not issubclass(base, Injectable) or base is Injectable:
             continue
 
-        module = sys.modules[base.__module__]
-        fields.update(t.get_type_hints(base, globalns=vars(module)))
+        fields.update(get_annotations(base))
 
     return fields
 

@@ -1,11 +1,8 @@
-from __future__ import annotations
-
 import abc
 from typing import Protocol, runtime_checkable
 
 import pytest
 from src.endow import BackendBase, Domain, Injectable, Service
-from src import endow
 
 class Db:
     def __init__(self) -> None:
@@ -403,3 +400,25 @@ def test_type_based_runtime_inputs_override_local_factory_defaults() -> None:
     service = NamedDefaultDoesNotOverrideTypedInput.with_injected(runtime_value="from-runtime")
 
     assert service.value == "from-runtime"
+
+
+class MyBase:
+    _settings: SomeSettings
+
+    def __init__(self):
+        self._settings = {"filled": "later"}
+
+class SomeInjectable(Injectable):
+    ...
+
+class MyCls(MyBase, Injectable):
+    inj: "SomeInjectable"
+
+def test_dependencies_out_of_graph():
+
+    inst = MyCls.with_injected()
+    assert inst
+    assert inst.inj
+    assert inst._settings == {"filled": "later"}
+
+

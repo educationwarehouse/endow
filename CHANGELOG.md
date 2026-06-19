@@ -2,6 +2,12 @@
 
 <!--next-version-placeholder-->
 
+## v0.1.3 (2026-06-19)
+
+### Fix
+
+* Use annotationlib (3.14+) to better deal with forward references + ignore (internal) keys starting with _ ([`4138375`](https://github.com/educationwarehouse/endow/commit/41383754f3a3340962b3d0bbe7b43d1260d958da))
+
 ## v0.1.2 (2026-06-15)
 
 ### Fix

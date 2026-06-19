@@ -103,11 +103,12 @@ class Graph:
             raise TypeError(msg)
 
         if isinstance(annotation, annotationlib.ForwardRef):
-            return annotation.evaluate(
+            resolved_annotation = annotation.evaluate(
                 locals=locals(),
-                globals=globals(),
+                globals=globals() | Injectable.get_known_injectables(),
                 type_params=(),
             )
+            return self._resolve(instance, name, resolved_annotation, local_inputs, type_inputs, skip_private)
 
         msg = f"Cannot resolve field '{name}' with annotation {annotation!r}"
         raise TypeError(msg)

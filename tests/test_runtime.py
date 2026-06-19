@@ -3,6 +3,8 @@ from typing import Protocol, runtime_checkable
 
 import pytest
 from src.endow import BackendBase, Domain, Injectable, Service
+from tests.dependency_zero import MainDependency
+
 
 class Db:
     def __init__(self) -> None:
@@ -415,10 +417,19 @@ class MyCls(MyBase, Injectable):
     inj: "SomeInjectable"
 
 def test_dependencies_out_of_graph():
-
     inst = MyCls.with_injected()
     assert inst
     assert inst.inj
     assert inst._settings == {"filled": "later"}
 
+def test_cyclic_multiple_modules():
+    main = MainDependency.with_injected()
+    assert main
+    assert main.first
+    assert main.first.second
+    assert main.second
+    assert main.second.first
+
+    assert main.second.first is main.first
+    assert main.first.second is main.second
 

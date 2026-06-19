@@ -60,7 +60,7 @@ class Graph:
             if inspect.getattr_static(instance, name, MISSING) is not MISSING:
                 continue
             self._check_dependency_direction(owner_type, name, annotation)
-            setattr(instance, name, self._resolve(name, annotation, local_inputs, type_inputs))
+            setattr(instance, name, self._resolve(instance, name, annotation, local_inputs, type_inputs))
 
     def _check_dependency_direction(self, owner_type: type[Injectable], name: str, annotation: t.Any) -> None:
         if self.strict is None:
@@ -81,6 +81,7 @@ class Graph:
 
     def _resolve(
         self,
+        instance: Injectable,
         name: str,
         annotation: t.Any,
         local_inputs: dict[str, t.Any] | None = None,
@@ -98,7 +99,7 @@ class Graph:
             return runtime_value
 
         if inspect.isclass(annotation):
-            msg = f"Missing runtime input for field '{name}'"
+            msg = f"Missing runtime input for field '{name}: {annotation.__name__}' in {instance.__class__.__name__}"
             raise TypeError(msg)
 
         if isinstance(annotation, annotationlib.ForwardRef):

@@ -280,7 +280,7 @@ def test_graph_is_executable_after_wiring() -> None:
 
 
 def test_missing_runtime_input_raises_a_clear_error() -> None:
-    with pytest.raises(TypeError, match="Missing runtime input for field 'auth'"):
+    with pytest.raises(TypeError, match="Missing runtime input for field 'auth: AuthContext'"):
         AppBackend.with_injected()
 
 
@@ -293,7 +293,7 @@ def test_protocol_typed_auth_runtime_input_is_injected() -> None:
 
 
 def test_missing_runtime_input_for_zero_arg_class_field_raises_clear_error() -> None:
-    with pytest.raises(TypeError, match="Missing runtime input for field 'db'"):
+    with pytest.raises(TypeError, match="Missing runtime input for field 'db: Db'"):
         DefaultConstructableDb.with_injected()
 
 
@@ -356,7 +356,7 @@ def test_factory_return_must_be_injectable() -> None:
 
 
 def test_missing_runtime_input_for_unconstructable_field_raises_clear_error() -> None:
-    with pytest.raises(TypeError, match="Missing runtime input for field 'value'"):
+    with pytest.raises(TypeError, match="Missing runtime input for field 'value: UnconstructableValue'"):
         NeedsUnconstructableField.with_injected()
 
 

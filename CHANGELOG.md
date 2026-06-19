@@ -2,6 +2,12 @@
 
 <!--next-version-placeholder-->
 
+## v0.1.6 (2026-06-19)
+
+### Fix
+
+* **runtime:** Reuse subclass instances for base dependencies ([`b205cfd`](https://github.com/educationwarehouse/endow/commit/b205cfd03979008b1ad744948821325586b3980f))
+
 ## v0.1.5 (2026-06-19)
 
 ### Fix

@@ -195,6 +195,27 @@ class NamedDefaultDoesNotOverrideTypedInput(Service):
         return cls()
 
 
+class BaseRuntimeContext(Service):
+    token: str
+
+    @classmethod
+    def from_env(cls, token: str) -> BaseRuntimeContext:
+        return cls()
+
+
+class DerivedRuntimeContext(BaseRuntimeContext):
+    pass
+
+
+class NeedsBaseRuntimeContext(Service):
+    context: BaseRuntimeContext
+
+
+class InheritanceBackend(BackendBase):
+    derived: DerivedRuntimeContext
+    consumer: NeedsBaseRuntimeContext
+
+
 def test_builds_a_shared_graph_per_root() -> None:
     backend = AppBackend.with_injected(db=Db(), value=0, auth=StaticAuth({"products.update"}))
 
@@ -404,6 +425,12 @@ def test_type_based_runtime_inputs_override_local_factory_defaults() -> None:
     assert service.value == "from-runtime"
 
 
+def test_subclass_instances_are_reused_for_base_class_dependencies() -> None:
+    backend = InheritanceBackend.with_injected(token="runtime-token")
+
+    assert backend.consumer.context is backend.derived
+
+
 class MyBase:
     _settings: SomeSettings
 
@@ -432,4 +459,3 @@ def test_cyclic_multiple_modules():
 
     assert main.second.first is main.first
     assert main.first.second is main.second
-

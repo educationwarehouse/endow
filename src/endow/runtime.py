@@ -29,11 +29,36 @@ class Graph:
         if cached is not None:
             return t.cast(T, cached)
 
+        compatible = self._find_compatible_instance(cls)
+        if compatible is not None:
+            self.instances[cls] = compatible
+            return t.cast(T, compatible)
+
         instance, local_inputs, type_inputs = self._make_instance(cls)
         self.instances[cls] = instance
         self.instances.setdefault(type(instance), instance)
         self._wire_instance(instance, local_inputs=local_inputs, type_inputs=type_inputs)
         return t.cast(T, instance)
+
+    def _find_compatible_instance[T: Injectable](self, cls: type[T]) -> Injectable | None:
+        matches: list[Injectable] = []
+        seen_ids: set[int] = set()
+
+        for candidate in self.instances.values():
+            if id(candidate) in seen_ids:
+                continue
+            seen_ids.add(id(candidate))
+            if isinstance(candidate, cls):
+                matches.append(candidate)
+
+        if not matches:
+            return None
+
+        if len(matches) > 1:
+            msg = f"Multiple cached instances satisfy injectable base '{cls.__name__}'"
+            raise TypeError(msg)
+
+        return matches[0]
 
     def _make_instance[T: Injectable](
         self, cls: type[T]

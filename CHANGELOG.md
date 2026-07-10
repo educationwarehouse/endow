@@ -2,6 +2,12 @@
 
 <!--next-version-placeholder-->
 
+## v0.2.0 (2026-07-10)
+
+### Feature
+
+* **runtime:** Allow runtime inputs to override injectables ([`d174063`](https://github.com/robinvandernoord/endow/commit/d1740634ad7925b9dc836d23044e13578123af99))
+
 ## v0.1.6 (2026-06-19)
 
 ### Fix

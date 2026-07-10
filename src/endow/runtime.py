@@ -116,12 +116,12 @@ class Graph:
         if name.startswith("_"):
             return None
 
-        if inspect.isclass(annotation) and issubclass(annotation, Injectable):
-            return self.build(annotation)
-
         runtime_value = self._match_runtime_input(name, annotation, local_inputs, type_inputs)
         if runtime_value is not MISSING:
             return runtime_value
+
+        if inspect.isclass(annotation) and issubclass(annotation, Injectable):
+            return self.build(annotation)
 
         if inspect.isclass(annotation):
             msg = f"Missing runtime input for field '{name}: {annotation.__name__}' in {instance.__class__.__name__}"

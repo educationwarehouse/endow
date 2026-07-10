@@ -211,6 +211,14 @@ class NeedsBaseRuntimeContext(Service):
     context: BaseRuntimeContext
 
 
+class DatabaseContext(Service):
+    pass
+
+
+class ImportFlow(Service):
+    db: DatabaseContext
+
+
 class InheritanceBackend(BackendBase):
     derived: DerivedRuntimeContext
     consumer: NeedsBaseRuntimeContext
@@ -423,6 +431,14 @@ def test_type_based_runtime_inputs_override_local_factory_defaults() -> None:
     service = NamedDefaultDoesNotOverrideTypedInput.with_injected(runtime_value="from-runtime")
 
     assert service.value == "from-runtime"
+
+
+def test_named_runtime_input_overrides_injectable_field() -> None:
+    db = DatabaseContext()
+
+    flow = ImportFlow.with_injected(db=db)
+
+    assert flow.db is db
 
 
 def test_subclass_instances_are_reused_for_base_class_dependencies() -> None:

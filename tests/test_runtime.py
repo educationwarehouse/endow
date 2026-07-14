@@ -1,9 +1,12 @@
 import abc
+import gc
+import weakref
 from typing import Protocol, runtime_checkable
 
 import pytest
 from src.endow import BackendBase, Domain, Injectable, Service
 from tests.dependency_zero import MainDependency
+from typedal import TypeDAL, TypedTable
 
 
 class Db:
@@ -118,6 +121,24 @@ class AppBackend(BackendBase):
     reports: Reports
 
 
+class FinalizableService(Service):
+    backend: FinalizableBackend
+    finalized = []
+
+    def __del__(self) -> None:
+        type(self).finalized.append("service")
+
+
+class FinalizableBackend(BackendBase):
+    service: FinalizableService
+    db: DatabaseContext
+
+    finalized = []
+
+    def __del__(self) -> None:
+        type(self).finalized.append("backend")
+
+
 class UnderscorePrefixedApplog(Service):
     db: Db
 
@@ -211,8 +232,11 @@ class NeedsBaseRuntimeContext(Service):
     context: BaseRuntimeContext
 
 
-class DatabaseContext(Service):
-    pass
+class DatabaseContext(TypeDAL, Injectable):
+    finalized = []
+
+    def __del__(self) -> None:
+        type(self).finalized.append("db")
 
 
 class ImportFlow(Service):
@@ -475,3 +499,46 @@ def test_cyclic_multiple_modules():
 
     assert main.second.first is main.first
     assert main.first.second is main.second
+
+
+def test_close_releases_cyclic_dependencies_without_garbage_collection() -> None:
+    FinalizableBackend.finalized = []
+    FinalizableService.finalized = []
+    DatabaseContext.finalized = []
+
+    db = DatabaseContext(
+        "sqlite:memory",
+        folder="/tmp/test_close_releases_cyclic_dependencies_without_garbage_collection",
+        use_pyproject=False, # <- otherwise pytest captures the warning which references the obj
+    )
+
+    @db.define()
+    class ExampleTable(TypedTable):
+        ...
+
+    assert ExampleTable._db is not None
+
+
+    backend = FinalizableBackend.with_injected(db=db)
+    backend_ref = weakref.ref(backend)
+    service_ref = weakref.ref(backend.service)
+    database_ref = weakref.ref(backend.db)
+
+    backend.close()
+    db.close() # should unbind
+
+    assert ExampleTable._db is None
+
+    assert service_ref() is None
+    assert FinalizableService.finalized == ["service"]
+
+    del backend
+    del db
+
+    gc.collect()
+
+    assert backend_ref() is None
+    assert database_ref() is None
+
+    assert FinalizableBackend.finalized == ["backend"]
+    assert DatabaseContext.finalized == ["db"]

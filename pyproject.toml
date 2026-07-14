@@ -14,6 +14,7 @@ dev = [
     "pytest",
     "pytest-cov",
     "python-semantic-release<8",
+    "typedal",
 ]
 
 [tool.hatch.version]

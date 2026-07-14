@@ -31,6 +31,25 @@ class Injectable:
         """Return a dictionary of known injectable types in the class."""
         return dict(cls._KNOWN_INJECTABLES)
 
+    def close(self) -> None:
+        """Disconnect injectable references held by this backend's object graph."""
+        pending = [self]
+        instances: list[Injectable] = []
+        seen_ids: set[int] = set()
+
+        while pending:
+            instance = pending.pop()
+            if id(instance) in seen_ids:
+                continue
+            seen_ids.add(id(instance))
+            instances.append(instance)
+            pending.extend(value for value in vars(instance).values() if isinstance(value, Injectable))
+
+        for instance in instances:
+            for name, value in vars(instance).copy().items():
+                if isinstance(value, Injectable):
+                    delattr(instance, name)
+
 
 class Service(Injectable):
     """Infrastructure capability resolved by the runtime."""

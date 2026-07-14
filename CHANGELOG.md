@@ -2,6 +2,12 @@
 
 <!--next-version-placeholder-->
 
+## v0.2.1 (2026-07-14)
+
+### Feature
+
+* **runtime:** Add injectable graph cleanup ([`56f8fd8`](https://github.com/educationwarehouse/endow/commit/56f8fd88f77c4823cbfef1ffebf9cf0af9ad8047))
+
 ## v0.2.0 (2026-07-10)
 
 ### Feature

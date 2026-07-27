@@ -74,6 +74,30 @@ backend.products.update(product_id=7)
 - Nested `from_env(...)` hooks can receive runtime inputs from the root call.
 - Cycles in the graph are supported because instances are cached during construction.
 
+## Auditing runtime inputs
+
+`with_injected(...)` resolves runtime inputs dynamically. To catch missing inputs before
+constructing a graph, inspect each composition root in your existing CI lint or test step:
+
+```python
+from endow import RuntimeInputAuditError
+
+
+try:
+    AppBackend.validate_runtime_inputs(db=db, auth=auth, value=0)
+except RuntimeInputAuditError as error:
+    raise AssertionError(error) from error
+```
+
+`AppBackend.runtime_requirements()` returns the declared requirements when a project needs
+to display or register them itself. The audit is side-effect-free: it walks injectable
+annotations and required `from_env()` parameters without instantiating services. A
+`from_env()` factory that chooses a concrete subclass at runtime is intentionally audited
+as its declared class; normal graph construction remains authoritative for that subclass.
+
+Missing-input errors raised during construction also include the dependency path that led
+to the missing field, making it clear which composition root needs another runtime input.
+
 ## Service vs Domain
 
 Use the two markers to communicate architectural intent:

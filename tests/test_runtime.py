@@ -4,7 +4,7 @@ import weakref
 from typing import Protocol, runtime_checkable
 
 import pytest
-from src.endow import BackendBase, Domain, Injectable, Service
+from src.endow import BackendBase, Domain, Injectable, RuntimeInputAuditError, Service
 from tests.dependency_zero import MainDependency
 from typedal import TypeDAL, TypedTable
 
@@ -183,6 +183,16 @@ class NeedsUnsupportedAnnotation(Service):
     value: int | str
 
 
+class NeedsFactoryToken(Service):
+    @classmethod
+    def from_env(cls, token: str) -> NeedsFactoryToken:
+        return cls()
+
+
+class FactoryInputBackend(BackendBase):
+    service: NeedsFactoryToken
+
+
 class DefaultedFactory(Service):
     db: Db
     label: str
@@ -335,7 +345,10 @@ def test_graph_is_executable_after_wiring() -> None:
 
 
 def test_missing_runtime_input_raises_a_clear_error() -> None:
-    with pytest.raises(TypeError, match="Missing runtime input for field 'auth: AuthContext'"):
+    with pytest.raises(
+        TypeError,
+        match="Missing runtime input for field 'auth: AuthContext'.*AppBackend.products -> Products.auth",
+    ):
         AppBackend.with_injected()
 
 
@@ -449,6 +462,49 @@ def test_variadic_factory_parameters_are_ignored() -> None:
 def test_unannotated_factory_parameter_requires_named_runtime_input() -> None:
     with pytest.raises(TypeError, match="Missing runtime input 'db' for from_env\\(\\)"):
         UnannotatedFactory.with_injected(database=Db())
+
+
+def test_runtime_requirements_inspect_nested_graph_without_constructing_it() -> None:
+    requirements = AppBackend.runtime_requirements()
+
+    assert {(requirement.name, requirement.source) for requirement in requirements} == {
+        ("auth", "field"),
+        ("db", "from_env"),
+        ("value", "field"),
+    }
+    auth_requirement = next(requirement for requirement in requirements if requirement.name == "auth")
+    assert auth_requirement.path == ("AppBackend.products", "Products.auth")
+
+
+def test_runtime_requirements_include_required_factory_parameters() -> None:
+    (requirement,) = FactoryInputBackend.runtime_requirements()
+
+    assert requirement.name == "token"
+    assert requirement.source == "from_env"
+    assert requirement.path == ("FactoryInputBackend.service", "NeedsFactoryToken.from_env(token)")
+
+
+def test_runtime_input_audit_reports_all_missing_requirements() -> None:
+    with pytest.raises(RuntimeInputAuditError, match=r"(?s)auth: AuthContext.*value: int") as error:
+        AppBackend.validate_runtime_inputs(db=Db())
+
+    assert "AppBackend.products -> Products.auth" in str(error.value)
+
+
+def test_runtime_input_audit_accepts_type_based_runtime_inputs() -> None:
+    AppBackend.validate_runtime_inputs(
+        database=Db(),
+        counter_value=0,
+        current_auth=StaticAuth({"products.update"}),
+    )
+
+
+def test_missing_factory_runtime_input_includes_dependency_path() -> None:
+    with pytest.raises(
+        TypeError,
+        match="Missing runtime input 'token' for from_env\\(\\).*FactoryInputBackend.service -> NeedsFactoryToken.from_env\\(token\\)",
+    ):
+        FactoryInputBackend.with_injected()
 
 
 def test_type_based_runtime_inputs_override_local_factory_defaults() -> None:

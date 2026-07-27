@@ -37,7 +37,7 @@ exclude_also = [
 src = ["src"]
 include = ["src/**/*.py"]
 
-target-version = "py312"
+target-version = "py314"
 line-length = 120
 
 

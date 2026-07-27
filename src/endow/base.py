@@ -1,8 +1,9 @@
 """Base injectable types used by the dependency graph runtime."""
 
-from __future__ import annotations
-
 import typing as t
+
+if t.TYPE_CHECKING:
+    from .runtime import RuntimeRequirement
 
 
 class Injectable:
@@ -25,6 +26,20 @@ class Injectable:
     def build(cls, **kw: t.Any) -> t.Self:
         """Backward-compatible alias for building an injected instance."""
         return cls.with_injected(**kw)
+
+    @classmethod
+    def runtime_requirements(cls) -> tuple[RuntimeRequirement, ...]:
+        """Return declared runtime inputs without constructing the graph."""
+        from .runtime import inspect_runtime_requirements
+
+        return inspect_runtime_requirements(cls)
+
+    @classmethod
+    def validate_runtime_inputs(cls, **runtime_inputs: t.Any) -> None:
+        """Raise when runtime inputs do not satisfy the declared graph requirements."""
+        from .runtime import validate_runtime_inputs
+
+        validate_runtime_inputs(cls, runtime_inputs)
 
     @classmethod
     def get_known_injectables(cls) -> dict[str, type]:

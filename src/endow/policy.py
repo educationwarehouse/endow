@@ -1,7 +1,5 @@
 """Framework-agnostic policy primitives for authorization-aware domains."""
 
-from __future__ import annotations
-
 import typing as t
 from abc import ABC, abstractmethod
 from dataclasses import dataclass

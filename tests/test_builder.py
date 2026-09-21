@@ -66,8 +66,8 @@ class ConfiguredNotifier(Notifier):
     """Entry point: picks one implementation or a composite, based on config."""
 
     @classmethod
-    def from_env(cls, builder: GraphBuilder) -> Notifier:
-        names = str(builder.inputs["notifiers"]).split(",")
+    def from_env(cls, notifiers: str, builder: GraphBuilder) -> Notifier:
+        names = notifiers.split(",")
         if len(names) == 1:
             return builder.build(NOTIFIERS[names[0]])
         return CompositeNotifier(builder.build_all(NOTIFIERS[name] for name in names))
@@ -75,6 +75,7 @@ class ConfiguredNotifier(Notifier):
 
 class App(BackendBase):
     notifier: ConfiguredNotifier
+    contract: Notifier
     applog: Applog
     metrics: Metrics
 
@@ -114,36 +115,71 @@ def test_composite_members_are_wired_and_share_singletons() -> None:
     assert db.events == ["mail:hi", "metric:sms", "sms:hi"]
 
 
+def test_entry_point_satisfies_the_base_annotation_for_a_composite() -> None:
+    app = App.with_injected(db=Db(), notifiers="mail,sms")
+
+    # the composite is what the graph resolved to, so it stands in for Notifier;
+    # its members do not, even though they subclass Notifier too
+    assert app.contract is app.notifier
+    assert isinstance(app.contract, CompositeNotifier)
+
+
+def test_entry_point_satisfies_the_base_annotation_for_a_single_member() -> None:
+    app = App.with_injected(db=Db(), notifiers="sms")
+
+    # here the member *is* what ConfiguredNotifier resolved to, so it is promoted
+    assert app.contract is app.notifier
+    assert isinstance(app.contract, SmsNotifier)
+
+
+class Reports(Service):
+    mail: MailNotifier
+
+
+class RootWithReports(BackendBase):
+    notifier: ConfiguredNotifier
+    reports: Reports
+
+
+def test_members_stay_reachable_by_their_own_type() -> None:
+    root = RootWithReports.with_injected(db=Db(), notifiers="mail,sms")
+    assert root.reports.mail is root.notifier.members[0]
+
+
+class Shared(Service):
+    db: Db
+
+
+class Twice(Service):
+    @classmethod
+    def from_env(cls, builder: GraphBuilder) -> Twice:
+        instance = cls()
+        instance.first = builder.build(Shared)
+        instance.second = builder.build(Shared)
+        return instance
+
+
+class TwiceRoot(BackendBase):
+    twice: Twice
+    shared: Shared
+
+
 def test_builder_instances_are_cached_in_the_graph() -> None:
-    class Shared(Service):
-        db: Db
-
-    class Twice(Service):
-        @classmethod
-        def from_env(cls, builder: GraphBuilder) -> Twice:
-            instance = cls()
-            instance.first = builder.build(Shared)
-            instance.second = builder.build(Shared)
-            return instance
-
-    class Root(BackendBase):
-        twice: Twice
-        shared: Shared
-
-    root = Root.with_injected(db=Db())
+    root = TwiceRoot.with_injected(db=Db())
     assert root.twice.first is root.twice.second
     assert root.twice.first is root.shared
 
 
-def test_builder_can_be_combined_with_runtime_inputs() -> None:
-    class Picky(Service):
-        @classmethod
-        def from_env(cls, db: Db, builder: GraphBuilder) -> Picky:
-            instance = cls()
-            instance.db = db
-            instance.applog = builder.build(Applog)
-            return instance
+class Picky(Service):
+    @classmethod
+    def from_env(cls, db: Db, builder: GraphBuilder) -> Picky:
+        instance = cls()
+        instance.db = db
+        instance.applog = builder.build(Applog)
+        return instance
 
+
+def test_builder_can_be_combined_with_runtime_inputs() -> None:
     db = Db()
     picky = Picky.with_injected(db=db)
     assert picky.db is db
@@ -151,59 +187,65 @@ def test_builder_can_be_combined_with_runtime_inputs() -> None:
     assert db.events == ["ok"]
 
 
+class Consumer(Service):
+    db: Db
+
+    @classmethod
+    def from_env(cls, builder: GraphBuilder) -> Consumer:
+        return cls()
+
+
 def test_builder_is_not_offered_as_a_field_dependency() -> None:
-    class Consumer(Service):
-        db: Db
-
-        @classmethod
-        def from_env(cls, builder: GraphBuilder) -> Consumer:
-            return cls()
-
     db = Db()
     consumer = Consumer.with_injected(db=db)
     assert consumer.db is db
 
 
-def test_factory_recursion_raises() -> None:
-    class Recursive(Service):
-        @classmethod
-        def from_env(cls, builder: GraphBuilder) -> Recursive:
-            return builder.build(Recursive)
+class Recursive(Service):
+    @classmethod
+    def from_env(cls, builder: GraphBuilder) -> Recursive:
+        return builder.build(Recursive)
 
+
+def test_factory_recursion_raises() -> None:
     with pytest.raises(TypeError, match="Factory recursion detected"):
         Recursive.with_injected()
 
 
+class Left(Service):
+    @classmethod
+    def from_env(cls, builder: GraphBuilder) -> Left:
+        builder.build(Right)
+        return cls()
+
+
+class Right(Service):
+    @classmethod
+    def from_env(cls, builder: GraphBuilder) -> Right:
+        builder.build(Left)
+        return cls()
+
+
 def test_indirect_factory_recursion_raises() -> None:
-    class Left(Service):
-        @classmethod
-        def from_env(cls, builder: GraphBuilder) -> Left:
-            builder.build(Right)
-            return cls()
-
-    class Right(Service):
-        @classmethod
-        def from_env(cls, builder: GraphBuilder) -> Right:
-            builder.build(Left)
-            return cls()
-
     with pytest.raises(TypeError, match="Factory recursion detected"):
         Left.with_injected()
 
 
+class Cyclic(Domain):
+    other: Other
+
+    @classmethod
+    def from_env(cls, builder: GraphBuilder) -> Cyclic:
+        instance = cls()
+        instance.applog = builder.build(Applog)
+        return instance
+
+
+class Other(Domain):
+    cyclic: Cyclic
+
+
 def test_field_cycles_still_work_around_a_builder_factory() -> None:
-    class Cyclic(Domain):
-        other: Other
-
-        @classmethod
-        def from_env(cls, builder: GraphBuilder) -> Cyclic:
-            instance = cls()
-            instance.applog = builder.build(Applog)
-            return instance
-
-    class Other(Domain):
-        cyclic: Cyclic
-
     db = Db()
     cyclic = Cyclic.with_injected(db=db)
     assert cyclic.other.cyclic is cyclic
@@ -211,14 +253,16 @@ def test_field_cycles_still_work_around_a_builder_factory() -> None:
     assert db.events == ["ok"]
 
 
-def test_builder_repr_names_what_is_under_construction() -> None:
+class Reporting(Injectable):
     seen: list[str] = []
 
-    class Reporting(Injectable):
-        @classmethod
-        def from_env(cls, builder: GraphBuilder) -> Reporting:
-            seen.append(repr(builder))
-            return cls()
+    @classmethod
+    def from_env(cls, builder: GraphBuilder) -> Reporting:
+        cls.seen.append(repr(builder))
+        return cls()
 
+
+def test_builder_repr_names_what_is_under_construction() -> None:
+    Reporting.seen = []
     Reporting.with_injected()
-    assert seen == ["<GraphBuilder building=Reporting>"]
+    assert Reporting.seen == ["<GraphBuilder building=Reporting>"]

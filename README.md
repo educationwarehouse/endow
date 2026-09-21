@@ -74,6 +74,52 @@ backend.products.update(product_id=7)
 - Nested `from_env(...)` hooks can receive runtime inputs from the root call.
 - Cycles in the graph are supported because instances are cached during construction.
 
+## Building members inside a factory
+
+Sometimes a factory only learns at runtime which classes it needs to construct - an environment variable naming one implementation, or several that get wrapped in a composite. Anything a `from_env` builds by itself is invisible to the graph, so it never gets wired.
+
+Declare a `GraphBuilder` parameter to get a handle to the graph that is being built:
+
+```python
+import os
+from endow import GraphBuilder
+
+NOTIFIERS = {"mail": MailNotifier, "sms": SmsNotifier}
+
+
+class ConfiguredNotifier(Notifier):
+    @classmethod
+    def from_env(cls, builder: GraphBuilder) -> Notifier:
+        names = os.environ["NOTIFIERS"].split(",")
+        if len(names) == 1:
+            return builder.build(NOTIFIERS[names[0]])
+        return CompositeNotifier(builder.build_all(NOTIFIERS[name] for name in names))
+```
+
+The parameter is matched by annotation, not by name, and it is optional: a `from_env` without one behaves exactly as before. It can be combined with the usual runtime inputs, `from_env(cls, db: DB, builder: GraphBuilder)`.
+
+`builder.build(cls)` returns a fully wired instance, and `builder.build_all(classes)` does the same for several at once. What you get back:
+
+- **Full wiring.** Each member is constructed through its own `from_env` if it has one, then gets its annotated fields filled - including dependencies the abstract base never declares. Members are complete before `build()` returns.
+- **Shared singletons.** Members are cached in the same graph, so two calls for the same class give one object, and so does a sibling field annotated with that class.
+- **Cycles.** Field cycles work as they always have. A factory asking the builder for a type whose own factory has not returned yet raises `Factory recursion detected` instead of a `RecursionError`.
+
+### Members are reachable by their own type, not by the contract
+
+A field annotated with the abstract base resolves to whatever the graph resolved to directly - the entry point - not to one of its members:
+
+```python
+class App(BackendBase):
+    notifier: ConfiguredNotifier
+    contract: Notifier          # the composite, not one of its members
+```
+
+This holds for both shapes. With several names configured, `contract` is the composite. With one name configured, `ConfiguredNotifier.from_env` returns the member itself, so that member *is* what the graph resolved to and `contract` is that member.
+
+Members stay reachable by their concrete type, so `mail: MailNotifier` elsewhere in the graph gets the same instance the composite holds.
+
+One ordering caveat, inherited from how base annotations are satisfied in general: the field that pins the base to a concrete instance has to be resolved first. Declare the entry point above any field annotated with its base.
+
 ## Service vs Domain
 
 Use the two markers to communicate architectural intent:

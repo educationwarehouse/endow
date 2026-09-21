@@ -14,6 +14,34 @@ from .base import Domain, Injectable, Service
 MISSING = object()
 
 
+class GraphBuilder:
+    """Handle to the graph that is currently being built.
+
+    A ``from_env`` factory receives one by declaring a parameter annotated with
+    this type. Anything built through it becomes part of the same graph: it gets
+    the normal field wiring and shares cached instances with everything else.
+    """
+
+    __slots__ = ("_graph",)
+
+    def __init__(self, graph: Graph) -> None:
+        """Wrap the graph that is currently being built."""
+        self._graph = graph
+
+    def build[T: Injectable](self, cls: type[T]) -> T:
+        """Build (or reuse) ``cls`` as part of the graph under construction."""
+        return self._graph.build(cls, public=False)
+
+    def build_all[T: Injectable](self, classes: t.Iterable[type[T]]) -> list[T]:
+        """Build every class in ``classes``, in order, sharing one graph."""
+        return [self.build(cls) for cls in classes]
+
+    def __repr__(self) -> str:
+        """Describe the builder and the classes it is currently constructing."""
+        building = ", ".join(sorted(cls.__name__ for cls in self._graph.building))
+        return f"<GraphBuilder building={building or '-'}>"
+
+
 class Graph:
     """Resolve injectables and runtime values into a shared object graph."""
 
@@ -22,23 +50,55 @@ class Graph:
         self.runtime_inputs = runtime_inputs
         self.strict = strict
         self.instances: dict[type[Injectable], Injectable] = {}
+        self.building: set[type[Injectable]] = set()
+        self.public_ids: set[int] = set()
+        self.internal_ids: set[int] = set()
 
-    def build[T: Injectable](self, cls: type[T]) -> T:
-        """Build or reuse an injectable instance of the requested type."""
+    def build[T: Injectable](self, cls: type[T], public: bool = True) -> T:
+        """Build or reuse an injectable instance of the requested type.
+
+        ``public`` marks the instance as directly reachable from the graph.
+        Factories building members through a :class:`GraphBuilder` pass ``False``,
+        which keeps those members from standing in for a base class annotation.
+        """
         cached = self.instances.get(cls)
         if cached is not None:
+            self._mark(cached, public=public)
             return t.cast(T, cached)
 
         compatible = self._find_compatible_instance(cls)
         if compatible is not None:
             self.instances[cls] = compatible
+            self._mark(compatible, public=public)
             return t.cast(T, compatible)
 
-        instance, local_inputs, type_inputs = self._make_instance(cls)
+        if cls in self.building:
+            msg = (
+                f"Factory recursion detected while building '{cls.__name__}': "
+                f"its from_env() asked the GraphBuilder for a type that is still under construction"
+            )
+            raise TypeError(msg)
+
+        self.building.add(cls)
+        try:
+            instance, local_inputs, type_inputs = self._make_instance(cls)
+        finally:
+            self.building.discard(cls)
+
         self.instances[cls] = instance
         self.instances.setdefault(type(instance), instance)
+        self._mark(instance, public=public)
         self._wire_instance(instance, local_inputs=local_inputs, type_inputs=type_inputs)
         return t.cast(T, instance)
+
+    def _mark(self, instance: Injectable, public: bool) -> None:
+        """Record whether ``instance`` is directly reachable from the graph."""
+        if public:
+            # something in the graph resolved to this instance, so it is a first-class member
+            self.public_ids.add(id(instance))
+            self.internal_ids.discard(id(instance))
+        elif id(instance) not in self.public_ids:
+            self.internal_ids.add(id(instance))
 
     def _find_compatible_instance[T: Injectable](self, cls: type[T]) -> Injectable | None:
         matches: list[Injectable] = []
@@ -48,6 +108,9 @@ class Graph:
             if id(candidate) in seen_ids:
                 continue
             seen_ids.add(id(candidate))
+            if id(candidate) in self.internal_ids:
+                # a factory-built member is reachable by its own type, not by a base it subclasses
+                continue
             if isinstance(candidate, cls):
                 matches.append(candidate)
 
@@ -153,6 +216,11 @@ class Graph:
                 continue
 
             annotation = type_hints.get(parameter.name, parameter.annotation)
+            if inspect.isclass(annotation) and issubclass(annotation, GraphBuilder):
+                # not recorded as an input: it is a handle to the graph, not a dependency value
+                args[parameter.name] = GraphBuilder(self)
+                continue
+
             value = self._match_runtime_input(parameter.name, annotation)
             if value is MISSING:
                 if parameter.default is not inspect._empty:

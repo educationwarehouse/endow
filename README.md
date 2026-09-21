@@ -102,7 +102,7 @@ The parameter is matched by annotation, not by name, and it is optional: a `from
 
 - **Full wiring.** Each member is constructed through its own `from_env` if it has one, then gets its annotated fields filled - including dependencies the abstract base never declares. Members are complete before `build()` returns.
 - **Shared singletons.** Members are cached in the same graph, so two calls for the same class give one object, and so does a sibling field annotated with that class.
-- **Cycles.** Field cycles work as they always have. A factory asking the builder for a type whose own factory has not returned yet raises `Factory recursion detected` instead of a `RecursionError`.
+- **Cycles.** Field cycles work as they always have. A factory asking the builder for a type whose own factory has not returned yet raises `Factory recursion detected` instead of a `RecursionError`. A member may declare fields for concrete types, but never for the contract its own entry point provides - that entry point is still being constructed, so there is nothing to hand over, and the field is rejected rather than quietly satisfied by the member itself.
 
 ### Members are reachable by their own type, not by the contract
 

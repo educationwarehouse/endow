@@ -300,3 +300,46 @@ def test_builder_repr_names_what_is_under_construction() -> None:
     Reporting.seen = []
     Reporting.with_injected()
     assert Reporting.seen == ["<GraphBuilder building=Reporting>"]
+
+
+class Retrying(Notifier):
+    """A member that wants the contract back, to re-dispatch through it."""
+
+    fallback: Notifier
+
+    def notify(self, message: str) -> None:
+        self.fallback.notify(message)
+
+
+RETRY_NOTIFIERS: dict[str, type[Notifier]] = {"mail": MailNotifier, "retry": Retrying}
+
+
+class RetryEntry(Notifier):
+    @classmethod
+    def from_env(cls, notifiers: str, builder: GraphBuilder) -> Notifier:
+        return CompositeNotifier(builder.build_all(RETRY_NOTIFIERS[name] for name in notifiers.split(",")))
+
+    def notify(self, message: str) -> None:
+        raise NotImplementedError
+
+
+class RetryRoot(BackendBase):
+    notifier: RetryEntry
+
+
+def test_member_cannot_satisfy_its_own_contract_while_the_entry_point_is_building() -> None:
+    # the composite does not exist yet, so there is no instance to hand the member;
+    # it must not quietly wire itself as its own fallback
+    with pytest.raises(TypeError, match="provided by 'RetryEntry', which is under construction"):
+        RetryRoot.with_injected(db=Db(), notifiers="mail,retry")
+
+
+class SelfBuilding(Service):
+    @classmethod
+    def from_env(cls, builder: GraphBuilder) -> SelfBuilding:
+        return builder.build(SelfBuilding)
+
+
+def test_a_factory_cannot_build_itself_through_the_builder() -> None:
+    with pytest.raises(TypeError, match="Factory recursion detected"):
+        SelfBuilding.with_injected()

@@ -139,11 +139,45 @@ class Reports(Service):
 class RootWithReports(BackendBase):
     notifier: ConfiguredNotifier
     reports: Reports
+    contract: Notifier
+
+
+class RootWithReportsFirst(BackendBase):
+    reports: Reports
+    notifier: ConfiguredNotifier
+    contract: Notifier
 
 
 def test_members_stay_reachable_by_their_own_type() -> None:
     root = RootWithReports.with_injected(db=Db(), notifiers="mail,sms")
     assert root.reports.mail is root.notifier.members[0]
+
+
+@pytest.mark.parametrize("root_cls", [RootWithReports, RootWithReportsFirst])
+def test_a_directly_referenced_member_does_not_shadow_the_entry_point(root_cls: type) -> None:
+    # asking for MailNotifier by name must not make it a candidate for Notifier,
+    # whichever side of the entry-point field the reference sits on
+    root = root_cls.with_injected(db=Db(), notifiers="mail,sms")
+
+    assert isinstance(root.contract, CompositeNotifier)
+    assert root.contract is root.notifier
+    assert root.reports.mail is root.notifier.members[0]
+
+
+class SingleRootWithReports(BackendBase):
+    notifier: ConfiguredNotifier
+    reports: Reports
+    contract: Notifier
+
+
+def test_single_member_entry_point_survives_a_direct_reference() -> None:
+    # ConfiguredNotifier resolves to the SmsNotifier itself, so that member stands in
+    # for Notifier even though MailNotifier is also in the graph by name
+    root = SingleRootWithReports.with_injected(db=Db(), notifiers="sms")
+
+    assert isinstance(root.contract, SmsNotifier)
+    assert root.contract is root.notifier
+    assert isinstance(root.reports.mail, MailNotifier)
 
 
 class Shared(Service):

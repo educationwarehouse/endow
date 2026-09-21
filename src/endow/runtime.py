@@ -27,8 +27,10 @@ class GraphBuilder:
     _graph: Graph
 
     def build[T: Injectable](self, cls: type[T]) -> T:
-        """Build (or reuse) `cls` as part of the graph under construction."""
-        return self._graph.build(cls, public=False)
+        """Build (or reuse) `cls` as a member of the graph under construction."""
+        instance = self._graph.build(cls)
+        self._graph.member_ids.add(id(instance))
+        return instance
 
     def build_all[T: Injectable](self, classes: t.Iterable[type[T]]) -> list[T]:
         """Build every class in `classes`, in order, sharing one graph."""
@@ -49,25 +51,18 @@ class Graph:
         self.strict = strict
         self.instances: dict[type[Injectable], Injectable] = {}
         self.building: set[type[Injectable]] = set()
-        self.public_ids: set[int] = set()
-        self.internal_ids: set[int] = set()
+        self.member_ids: set[int] = set()
+        self.standin_ids: set[int] = set()
 
-    def build[T: Injectable](self, cls: type[T], public: bool = True) -> T:
-        """Build or reuse an injectable instance of the requested type.
-
-        `public` marks the instance as directly reachable from the graph.
-        Factories building members through a `GraphBuilder` pass `False`,
-        which keeps those members from standing in for a base class annotation.
-        """
+    def build[T: Injectable](self, cls: type[T]) -> T:
+        """Build or reuse an injectable instance of the requested type."""
         cached = self.instances.get(cls)
         if cached is not None:
-            self._mark(cached, public=public)
             return t.cast(T, cached)
 
         compatible = self._find_compatible_instance(cls)
         if compatible is not None:
             self.instances[cls] = compatible
-            self._mark(compatible, public=public)
             return t.cast(T, compatible)
 
         if cls in self.building:
@@ -85,18 +80,11 @@ class Graph:
 
         self.instances[cls] = instance
         self.instances.setdefault(type(instance), instance)
-        self._mark(instance, public=public)
+        if type(instance) is not cls:
+            # answers for a class it is not, so it stands in for that abstraction
+            self.standin_ids.add(id(instance))
         self._wire_instance(instance, local_inputs=local_inputs, type_inputs=type_inputs)
         return t.cast(T, instance)
-
-    def _mark(self, instance: Injectable, public: bool) -> None:
-        """Record whether `instance` is directly reachable from the graph."""
-        if public:
-            # something in the graph resolved to this instance, so it is a first-class member
-            self.public_ids.add(id(instance))
-            self.internal_ids.discard(id(instance))
-        elif id(instance) not in self.public_ids:
-            self.internal_ids.add(id(instance))
 
     def _find_compatible_instance[T: Injectable](self, cls: type[T]) -> Injectable | None:
         matches: list[Injectable] = []
@@ -106,7 +94,7 @@ class Graph:
             if id(candidate) in seen_ids:
                 continue
             seen_ids.add(id(candidate))
-            if id(candidate) in self.internal_ids:
+            if id(candidate) in self.member_ids and id(candidate) not in self.standin_ids:
                 # a factory-built member is reachable by its own type, not by a base it subclasses
                 continue
             if isinstance(candidate, cls):
@@ -116,6 +104,12 @@ class Graph:
             return None
 
         if len(matches) > 1:
+            # an instance registered as the answer for a class it is not was chosen
+            # deliberately for that abstraction, so it outranks one built for itself
+            standins = [match for match in matches if id(match) in self.standin_ids]
+            if len(standins) == 1:
+                return standins[0]
+
             msg = f"Multiple cached instances satisfy injectable base '{cls.__name__}'"
             raise TypeError(msg)
 

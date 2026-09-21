@@ -116,9 +116,26 @@ class App(BackendBase):
 
 This holds for both shapes. With several names configured, `contract` is the composite. With one name configured, `ConfiguredNotifier.from_env` returns the member itself, so that member *is* what the graph resolved to and `contract` is that member.
 
-Members stay reachable by their concrete type, so `mail: MailNotifier` elsewhere in the graph gets the same instance the composite holds.
+Members stay reachable by their concrete type, so `mail: MailNotifier` elsewhere in the graph gets the same instance the composite holds. Naming a member that way does not promote it: `contract` still resolves to the entry point, not to the member that admin or debug code happens to hold.
+
+When several instances satisfy a base annotation, one registered as the answer for a class it is not - the entry point, or any `from_env` returning a subclass - wins over one built for itself. Two of those is still ambiguous and raises.
 
 One ordering caveat, inherited from how base annotations are satisfied in general: the field that pins the base to a concrete instance has to be resolved first. Declare the entry point above any field annotated with its base.
+
+### Putting `from_env` on the abstract base instead
+
+The dispatcher can live on the base rather than on a separate entry-point class, which is the shape `Mailer` uses in the test suite. Then the base becomes its own cache key and the ordering caveat above is the only thing to watch.
+
+In that shape every member needs its own `from_env`, even a trivial one:
+
+```python
+class MailNotifier(Notifier):
+    @classmethod
+    def from_env(cls) -> "MailNotifier":
+        return cls()
+```
+
+Without it, the member inherits the base's dispatcher, which asks the builder for the member again. That raises `Factory recursion detected`.
 
 ## Service vs Domain
 

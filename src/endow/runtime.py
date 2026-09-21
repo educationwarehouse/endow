@@ -6,12 +6,38 @@ import inspect
 import sys
 import typing as t
 import warnings
+from dataclasses import dataclass
 
 import annotationlib
 
 from .base import Domain, Injectable, Service
 
 MISSING = object()
+
+
+@dataclass(frozen=True, slots=True)
+class GraphBuilder:
+    """Handle to the graph that is currently being built.
+
+    A `from_env` factory receives one by declaring a parameter annotated with
+    this type. Anything built through it becomes part of the same graph: it gets
+    the normal field wiring and shares cached instances with everything else.
+    """
+
+    _graph: Graph
+
+    def build[T: Injectable](self, cls: type[T]) -> T:
+        """Build (or reuse) `cls` as a member of the graph under construction."""
+        return self._graph.build(cls, member=True)
+
+    def build_all[T: Injectable](self, classes: t.Iterable[type[T]]) -> list[T]:
+        """Build every class in `classes`, in order, sharing one graph."""
+        return [self.build(cls) for cls in classes]
+
+    def __repr__(self) -> str:
+        """Describe the builder and the classes it is currently constructing."""
+        building = ", ".join(sorted(cls.__name__ for cls in self._graph.building))
+        return f"<GraphBuilder building={building or '-'}>"
 
 
 class Graph:
@@ -22,23 +48,57 @@ class Graph:
         self.runtime_inputs = runtime_inputs
         self.strict = strict
         self.instances: dict[type[Injectable], Injectable] = {}
+        self.building: set[type[Injectable]] = set()
+        self.member_ids: set[int] = set()
+        self.standin_ids: set[int] = set()
 
-    def build[T: Injectable](self, cls: type[T]) -> T:
+    def build[T: Injectable](self, cls: type[T], member: bool = False) -> T:
         """Build or reuse an injectable instance of the requested type."""
+        blocking = [under_construction for under_construction in self.building if issubclass(under_construction, cls)]
+        if blocking:
+            names = ", ".join(sorted(f"'{blocked.__name__}'" for blocked in blocking))
+            if cls in blocking:
+                msg = (
+                    f"Factory recursion detected while building '{cls.__name__}': "
+                    f"it asked the GraphBuilder for a type that is still under construction"
+                )
+            else:
+                msg = (
+                    f"'{cls.__name__}' is provided by {names}, which is under construction. "
+                    f"A member may not depend on it; annotate a concrete type."
+                )
+            raise TypeError(msg)
+
         cached = self.instances.get(cls)
         if cached is not None:
+            self._mark_member(cached, member)
             return t.cast(T, cached)
 
         compatible = self._find_compatible_instance(cls)
         if compatible is not None:
             self.instances[cls] = compatible
+            self._mark_member(compatible, member)
             return t.cast(T, compatible)
 
-        instance, local_inputs, type_inputs = self._make_instance(cls)
+        self.building.add(cls)
+        try:
+            instance, local_inputs, type_inputs = self._make_instance(cls)
+        finally:
+            self.building.discard(cls)
+
         self.instances[cls] = instance
         self.instances.setdefault(type(instance), instance)
+        self._mark_member(instance, member)
+        if type(instance) is not cls:
+            # answers for a class it is not, so it stands in for that abstraction
+            self.standin_ids.add(id(instance))
         self._wire_instance(instance, local_inputs=local_inputs, type_inputs=type_inputs)
         return t.cast(T, instance)
+
+    def _mark_member(self, instance: Injectable, member: bool) -> None:
+        """Record that a factory built `instance` as a member of something it is assembling."""
+        if member:
+            self.member_ids.add(id(instance))
 
     def _find_compatible_instance[T: Injectable](self, cls: type[T]) -> Injectable | None:
         matches: list[Injectable] = []
@@ -48,6 +108,9 @@ class Graph:
             if id(candidate) in seen_ids:
                 continue
             seen_ids.add(id(candidate))
+            if id(candidate) in self.member_ids and id(candidate) not in self.standin_ids:
+                # a factory-built member is reachable by its own type, not by a base it subclasses
+                continue
             if isinstance(candidate, cls):
                 matches.append(candidate)
 
@@ -55,6 +118,12 @@ class Graph:
             return None
 
         if len(matches) > 1:
+            # an instance registered as the answer for a class it is not was chosen
+            # deliberately for that abstraction, so it outranks one built for itself
+            standins = [match for match in matches if id(match) in self.standin_ids]
+            if len(standins) == 1:
+                return standins[0]
+
             msg = f"Multiple cached instances satisfy injectable base '{cls.__name__}'"
             raise TypeError(msg)
 
@@ -153,6 +222,11 @@ class Graph:
                 continue
 
             annotation = type_hints.get(parameter.name, parameter.annotation)
+            if inspect.isclass(annotation) and issubclass(annotation, GraphBuilder):
+                # not recorded as an input: it is a handle to the graph, not a dependency value
+                args[parameter.name] = GraphBuilder(self)
+                continue
+
             value = self._match_runtime_input(parameter.name, annotation)
             if value is MISSING:
                 if parameter.default is not inspect._empty:

@@ -10,6 +10,7 @@ from .runtime import build_graph
 
 class BackendBase(Injectable):
     """Root object that builds a graph from runtime inputs."""
+
     @classmethod
     def with_injected(cls, **runtime_inputs: t.Any) -> t.Self:
         """Build a backend instance from the provided runtime inputs."""

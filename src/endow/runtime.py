@@ -28,9 +28,7 @@ class GraphBuilder:
 
     def build[T: Injectable](self, cls: type[T]) -> T:
         """Build (or reuse) `cls` as a member of the graph under construction."""
-        instance = self._graph.build(cls)
-        self._graph.member_ids.add(id(instance))
-        return instance
+        return self._graph.build(cls, member=True)
 
     def build_all[T: Injectable](self, classes: t.Iterable[type[T]]) -> list[T]:
         """Build every class in `classes`, in order, sharing one graph."""
@@ -54,21 +52,25 @@ class Graph:
         self.member_ids: set[int] = set()
         self.standin_ids: set[int] = set()
 
-    def build[T: Injectable](self, cls: type[T]) -> T:
+    def build[T: Injectable](self, cls: type[T], member: bool = False) -> T:
         """Build or reuse an injectable instance of the requested type."""
         cached = self.instances.get(cls)
         if cached is not None:
+            self._mark_member(cached, member)
             return t.cast(T, cached)
 
         compatible = self._find_compatible_instance(cls)
         if compatible is not None:
             self.instances[cls] = compatible
+            self._mark_member(compatible, member)
             return t.cast(T, compatible)
 
-        if cls in self.building:
+        blocking = [under_construction for under_construction in self.building if issubclass(under_construction, cls)]
+        if blocking:
+            names = ", ".join(sorted(blocked.__name__ for blocked in blocking))
             msg = (
-                f"Factory recursion detected while building '{cls.__name__}': "
-                f"its from_env() asked the GraphBuilder for a type that is still under construction"
+                f"Factory recursion detected while resolving '{cls.__name__}': "
+                f"it is still being constructed by {names}"
             )
             raise TypeError(msg)
 
@@ -80,11 +82,17 @@ class Graph:
 
         self.instances[cls] = instance
         self.instances.setdefault(type(instance), instance)
+        self._mark_member(instance, member)
         if type(instance) is not cls:
             # answers for a class it is not, so it stands in for that abstraction
             self.standin_ids.add(id(instance))
         self._wire_instance(instance, local_inputs=local_inputs, type_inputs=type_inputs)
         return t.cast(T, instance)
+
+    def _mark_member(self, instance: Injectable, member: bool) -> None:
+        """Record that a factory built `instance` as a member of something it is assembling."""
+        if member:
+            self.member_ids.add(id(instance))
 
     def _find_compatible_instance[T: Injectable](self, cls: type[T]) -> Injectable | None:
         matches: list[Injectable] = []

@@ -54,11 +54,6 @@ class Graph:
 
     def build[T: Injectable](self, cls: type[T], member: bool = False) -> T:
         """Build or reuse an injectable instance of the requested type."""
-        cached = self.instances.get(cls)
-        if cached is not None:
-            self._mark_member(cached, member)
-            return t.cast(T, cached)
-
         blocking = [under_construction for under_construction in self.building if issubclass(under_construction, cls)]
         if blocking:
             names = ", ".join(sorted(f"'{blocked.__name__}'" for blocked in blocking))
@@ -73,6 +68,11 @@ class Graph:
                     f"A member may not depend on it; annotate a concrete type."
                 )
             raise TypeError(msg)
+
+        cached = self.instances.get(cls)
+        if cached is not None:
+            self._mark_member(cached, member)
+            return t.cast(T, cached)
 
         compatible = self._find_compatible_instance(cls)
         if compatible is not None:

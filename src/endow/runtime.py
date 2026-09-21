@@ -59,12 +59,6 @@ class Graph:
             self._mark_member(cached, member)
             return t.cast(T, cached)
 
-        compatible = self._find_compatible_instance(cls)
-        if compatible is not None:
-            self.instances[cls] = compatible
-            self._mark_member(compatible, member)
-            return t.cast(T, compatible)
-
         blocking = [under_construction for under_construction in self.building if issubclass(under_construction, cls)]
         if blocking:
             names = ", ".join(sorted(f"'{blocked.__name__}'" for blocked in blocking))
@@ -79,6 +73,12 @@ class Graph:
                     f"A member may not depend on it; annotate a concrete type."
                 )
             raise TypeError(msg)
+
+        compatible = self._find_compatible_instance(cls)
+        if compatible is not None:
+            self.instances[cls] = compatible
+            self._mark_member(compatible, member)
+            return t.cast(T, compatible)
 
         self.building.add(cls)
         try:

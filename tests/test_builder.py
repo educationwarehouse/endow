@@ -343,3 +343,49 @@ class SelfBuilding(Service):
 def test_a_factory_cannot_build_itself_through_the_builder() -> None:
     with pytest.raises(TypeError, match="Factory recursion detected"):
         SelfBuilding.with_injected()
+
+
+class SlackNotifier(Notifier):
+    def notify(self, message: str) -> None:
+        self.applog.track(f"slack:{message}")
+
+
+class RetryingWithChannel(Notifier):
+    """A member holding a concrete notifier as well as the contract."""
+
+    slack: SlackNotifier
+    fallback: Notifier
+
+    def notify(self, message: str) -> None:
+        self.fallback.notify(message)
+
+
+class ContractFirst(Notifier):
+    """Same fields, declared the other way around."""
+
+    fallback: Notifier
+    slack: SlackNotifier
+
+    def notify(self, message: str) -> None:
+        self.fallback.notify(message)
+
+
+class ChannelEntry(Notifier):
+    @classmethod
+    def from_env(cls, member: str, builder: GraphBuilder) -> Notifier:
+        return builder.build(RetryingWithChannel if member == "concrete-first" else ContractFirst)
+
+    def notify(self, message: str) -> None:
+        raise NotImplementedError
+
+
+class ChannelRoot(BackendBase):
+    notifier: ChannelEntry
+
+
+@pytest.mark.parametrize("member", ["concrete-first", "contract-first"])
+def test_a_sibling_field_cannot_satisfy_a_member_contract(member: str) -> None:
+    # a concrete notifier built for an adjacent field must not be handed to the
+    # contract field, whichever order the two are declared in
+    with pytest.raises(TypeError, match="provided by 'ChannelEntry', which is under construction"):
+        ChannelRoot.with_injected(db=Db(), member=member)

@@ -65,7 +65,7 @@ class Graph:
             if cls in blocking:
                 msg = (
                     f"Factory recursion detected while building '{cls.__name__}': "
-                    f"its from_env() asked the GraphBuilder for a type that is still under construction"
+                    f"it asked the GraphBuilder for a type that is still under construction"
                 )
             else:
                 msg = (

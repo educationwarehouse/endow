@@ -334,6 +334,19 @@ def test_member_cannot_satisfy_its_own_contract_while_the_entry_point_is_buildin
         RetryRoot.with_injected(db=Db(), notifiers="mail,retry")
 
 
+class CachedContractBeforeEntryRoot(BackendBase):
+    first: MailNotifier
+    contract: Notifier
+    notifier: RetryEntry
+
+
+def test_member_cannot_reuse_a_cached_contract_while_the_entry_point_is_building() -> None:
+    # Resolving `contract` caches MailNotifier under Notifier before RetryEntry
+    # builds Retrying. The active entry point must still block its fallback.
+    with pytest.raises(TypeError, match="provided by 'RetryEntry', which is under construction"):
+        CachedContractBeforeEntryRoot.with_injected(db=Db(), notifiers="retry")
+
+
 class SelfBuilding(Service):
     @classmethod
     def from_env(cls, builder: GraphBuilder) -> SelfBuilding:

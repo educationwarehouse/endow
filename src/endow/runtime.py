@@ -6,6 +6,7 @@ import inspect
 import sys
 import typing as t
 import warnings
+from dataclasses import dataclass
 
 import annotationlib
 
@@ -14,26 +15,23 @@ from .base import Domain, Injectable, Service
 MISSING = object()
 
 
+@dataclass(frozen=True, slots=True)
 class GraphBuilder:
     """Handle to the graph that is currently being built.
 
-    A ``from_env`` factory receives one by declaring a parameter annotated with
+    A `from_env` factory receives one by declaring a parameter annotated with
     this type. Anything built through it becomes part of the same graph: it gets
     the normal field wiring and shares cached instances with everything else.
     """
 
-    __slots__ = ("_graph",)
-
-    def __init__(self, graph: Graph) -> None:
-        """Wrap the graph that is currently being built."""
-        self._graph = graph
+    _graph: Graph
 
     def build[T: Injectable](self, cls: type[T]) -> T:
-        """Build (or reuse) ``cls`` as part of the graph under construction."""
+        """Build (or reuse) `cls` as part of the graph under construction."""
         return self._graph.build(cls, public=False)
 
     def build_all[T: Injectable](self, classes: t.Iterable[type[T]]) -> list[T]:
-        """Build every class in ``classes``, in order, sharing one graph."""
+        """Build every class in `classes`, in order, sharing one graph."""
         return [self.build(cls) for cls in classes]
 
     def __repr__(self) -> str:
@@ -57,8 +55,8 @@ class Graph:
     def build[T: Injectable](self, cls: type[T], public: bool = True) -> T:
         """Build or reuse an injectable instance of the requested type.
 
-        ``public`` marks the instance as directly reachable from the graph.
-        Factories building members through a :class:`GraphBuilder` pass ``False``,
+        `public` marks the instance as directly reachable from the graph.
+        Factories building members through a `GraphBuilder` pass `False`,
         which keeps those members from standing in for a base class annotation.
         """
         cached = self.instances.get(cls)
@@ -92,7 +90,7 @@ class Graph:
         return t.cast(T, instance)
 
     def _mark(self, instance: Injectable, public: bool) -> None:
-        """Record whether ``instance`` is directly reachable from the graph."""
+        """Record whether `instance` is directly reachable from the graph."""
         if public:
             # something in the graph resolved to this instance, so it is a first-class member
             self.public_ids.add(id(instance))

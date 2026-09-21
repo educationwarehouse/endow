@@ -52,11 +52,8 @@ class Graph:
         self.member_ids: set[int] = set()
         self.standin_ids: set[int] = set()
 
-    def build[T: Injectable](self, cls: type[T], member: bool = False, requested_by: str | None = None) -> T:
-        """Build or reuse an injectable instance of the requested type.
-
-        `requested_by` names the field being wired, when the request came from one.
-        """
+    def build[T: Injectable](self, cls: type[T], member: bool = False) -> T:
+        """Build or reuse an injectable instance of the requested type."""
         cached = self.instances.get(cls)
         if cached is not None:
             self._mark_member(cached, member)
@@ -70,17 +67,16 @@ class Graph:
 
         blocking = [under_construction for under_construction in self.building if issubclass(under_construction, cls)]
         if blocking:
-            names = ", ".join(sorted(blocked.__name__ for blocked in blocking))
-            if requested_by is None:
+            names = ", ".join(sorted(f"'{blocked.__name__}'" for blocked in blocking))
+            if cls in blocking:
                 msg = (
-                    f"Factory recursion detected while resolving '{cls.__name__}': "
-                    f"it is still being constructed by {names}"
+                    f"Factory recursion detected while building '{cls.__name__}': "
+                    f"its from_env() asked the GraphBuilder for a type that is still under construction"
                 )
             else:
                 msg = (
-                    f"Field '{requested_by}: {cls.__name__}' cannot be injected: "
-                    f"'{cls.__name__}' is provided by {names}, which is building this instance. "
-                    f"Annotate a concrete type."
+                    f"'{cls.__name__}' is provided by {names}, which is under construction. "
+                    f"A member may not depend on it; annotate a concrete type."
                 )
             raise TypeError(msg)
 
@@ -194,7 +190,7 @@ class Graph:
             return runtime_value
 
         if inspect.isclass(annotation) and issubclass(annotation, Injectable):
-            return self.build(annotation, requested_by=f"{type(instance).__name__}.{name}")
+            return self.build(annotation)
 
         if inspect.isclass(annotation):
             msg = f"Missing runtime input for field '{name}: {annotation.__name__}' in {instance.__class__.__name__}"

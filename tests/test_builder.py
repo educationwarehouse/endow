@@ -330,7 +330,7 @@ class RetryRoot(BackendBase):
 def test_member_cannot_satisfy_its_own_contract_while_the_entry_point_is_building() -> None:
     # the composite does not exist yet, so there is no instance to hand the member;
     # it must not quietly wire itself as its own fallback
-    with pytest.raises(TypeError, match=r"Field 'Retrying\.fallback: Notifier' cannot be injected"):
+    with pytest.raises(TypeError, match="provided by 'RetryEntry', which is under construction"):
         RetryRoot.with_injected(db=Db(), notifiers="mail,retry")
 
 
@@ -340,6 +340,6 @@ class SelfBuilding(Service):
         return builder.build(SelfBuilding)
 
 
-def test_direct_builder_recursion_keeps_the_recursion_message() -> None:
+def test_a_factory_cannot_build_itself_through_the_builder() -> None:
     with pytest.raises(TypeError, match="Factory recursion detected"):
         SelfBuilding.with_injected()

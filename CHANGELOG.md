@@ -2,6 +2,11 @@
 
 <!--next-version-placeholder-->
 
+## v0.3.0 (2026-09-21)
+
+### Feature
+* **runtime:** support graph-built factory members
+
 ## v0.2.1 (2026-07-14)
 
 ### Feature

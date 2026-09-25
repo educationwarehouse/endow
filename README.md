@@ -74,6 +74,27 @@ backend.products.update(product_id=7)
 - Nested `from_env(...)` hooks can receive runtime inputs from the root call.
 - Cycles in the graph are supported because instances are cached during construction.
 
+## Building members inside a factory
+
+Sometimes a factory only learns at runtime which classes it needs - an environment variable naming one implementation, or several that get wrapped in a composite. Anything a `from_env` builds by itself is invisible to the graph, so it never gets wired. Declare a `GraphBuilder` parameter to build them as part of the graph instead:
+
+```python
+class Notifier(Service, ABC):
+    @classmethod
+    def from_env(cls, builder: GraphBuilder) -> "Notifier":
+        names = os.environ["NOTIFIERS"].split(",")
+        if len(names) == 1:
+            return builder.build(NOTIFIERS[names[0]])
+        return CompositeNotifier(builder.build_all(NOTIFIERS[name] for name in names))
+```
+
+The parameter is matched by annotation and is optional, so a `from_env` without one behaves exactly as before. `builder.build(cls)` returns a fully wired instance and `builder.build_all(classes)` does several at once. Both share the graph's cached instances, so singletons stay single and members get dependencies the abstract contract never declares.
+
+Two rules to know:
+
+- Every implementation needs its own `from_env`, even `return cls()`. Without it, it inherits the dispatcher above and asks the builder for itself.
+- A member may hold fields for concrete types, but not for the contract its own factory provides. That factory is still running, so there is nothing to hand over and the field is rejected.
+
 ## Service vs Domain
 
 Use the two markers to communicate architectural intent:
